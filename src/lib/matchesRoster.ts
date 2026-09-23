@@ -10,7 +10,8 @@
 export const SGP_REGION_CODE = "GZ100";
 export const SGP_BASE = `https://${SGP_REGION_CODE}-sgp.lol.qq.com:21019`;
 
-// 同一方至少几名车队成员才算「车队局」. 名单凑齐前临时设 1 便于验证接口, 之后调回 3.
+// 拉取端的最低门槛: 同一方至少 1 名车队成员就存, 也就是名单里每个人的对局
+// 尽量全存. 「几个人才算车队局」是展示层的筛选参数 (见 filters.ts), 在网页上调.
 export const MIN_TEAM_MEMBERS = 1;
 
 export type RosterMember = {
@@ -35,5 +36,6 @@ export const rosterNameByPuuid: Record<string, string> = Object.fromEntries(
   matchesRoster.map((m) => [m.puuid, m.name])
 );
 
-// 只同步北京时间 2026-09-01 00:00 (UTC 2026-08-31 16:00) 以后的对局.
-export const SYNC_SINCE_MS = Date.parse("2026-08-31T16:00:00Z");
+// 拉取端的时间下限: 2026-01-01 (北京). SGP 每人最多往回翻 400 场, 实际能拉到
+// 多早取决于对方打了多少场. 「从哪天开始看」同样是展示层参数, 在网页上调.
+export const SYNC_SINCE_MS = Date.parse("2026-01-01T00:00:00+08:00");

@@ -1,6 +1,9 @@
 import Image from "next/image";
 import { roster, TEAM_NAME } from "@/lib/roster";
 import { getMemberProfiles, isDbConfigured, type MemberProfile } from "@/lib/db";
+import { parseFilters } from "@/lib/filters";
+import MatchFilterBar from "@/components/MatchFilterBar";
+import { Suspense } from "react";
 
 export const dynamic = "force-dynamic";
 
@@ -10,8 +13,13 @@ export const metadata = {
 
 // 名单页的分路 / 英雄池 / 场次胜率全部从已同步的战绩里统计 (见 getMemberProfiles),
 // roster.ts 里手填的 positions / champions 只在库里还没有该成员数据时兜底.
-export default async function RosterPage() {
-  const profiles = isDbConfigured() ? await getMemberProfiles() : new Map<string, MemberProfile>();
+export default async function RosterPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ min?: string; since?: string }>;
+}) {
+  const filters = parseFilters(await searchParams);
+  const profiles = isDbConfigured() ? await getMemberProfiles(filters) : new Map<string, MemberProfile>();
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-16">
@@ -25,6 +33,12 @@ export default async function RosterPage() {
         <p className="mt-3 text-xs text-[var(--muted)]">
           分路与英雄池按已同步对局自动统计 · 分路只计召唤师峡谷
         </p>
+      </div>
+
+      <div className="mb-10">
+        <Suspense fallback={null}>
+          <MatchFilterBar min={filters.min} sinceDate={filters.sinceDate} />
+        </Suspense>
       </div>
 
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">

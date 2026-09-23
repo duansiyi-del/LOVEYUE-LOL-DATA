@@ -19,7 +19,9 @@
 
 token 只在那一次请求里用, 不落库不打日志.
 
-大区、成员 puuid、车队局门槛、同步起始日都在 `src/lib/matchesRoster.ts`.
+大区、成员 puuid 在 `src/lib/matchesRoster.ts`. 拉取端尽量全存 (同一方 1 人起、2026-01-01 起);
+「几人算车队局」「从哪天看」是网页上的筛选参数 (`?min=3&since=2026-09-01`),
+默认值在 `src/lib/filters.ts`, 改参数只是重查库, 不动数据.
 
 ## 加成员
 

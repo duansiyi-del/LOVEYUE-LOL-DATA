@@ -333,14 +333,19 @@ function groupMatches(rows: MatchRow[]): StoredMatch[] {
   return order.map((id) => byGame.get(id)!);
 }
 
+// 展示层筛选: 同一方车队人数 >= min, 开局时间 >= sinceMs. 拉取端存得更全
+// (见 matchesRoster.ts), 这里按前端传来的参数过滤 (见 filters.ts).
+export type MatchFilter = { min: number; sinceMs: number };
+
 export async function listMatches(
+  filter: MatchFilter,
   limit = 20,
   offset = 0,
   queueName?: string | null
 ): Promise<StoredMatch[]> {
   // One round trip: join match_players onto one page of matches (most
   // recent first, LIMIT/OFFSET below), optionally narrowed to one queue.
-  // (Avoids passing an array param — @vercel/postgres's `sql` tag only
+  // (Avoids passing an array param -- @vercel/postgres's `sql` tag only
   // accepts primitive values, so the column list is spelled out below
   // rather than shared via a helper.)
   const queue = queueName ?? null;
@@ -357,6 +362,8 @@ export async function listMatches(
       SELECT game_id, game_creation_ms, duration_min, queue_name, roster_count, team_stats
       FROM matches
       WHERE (${queue}::text IS NULL OR queue_name = ${queue}::text)
+        AND roster_count >= ${filter.min}
+        AND game_creation_ms >= ${filter.sinceMs}
       ORDER BY game_creation_ms DESC
       LIMIT ${limit} OFFSET ${offset}
     ) m
@@ -368,12 +375,14 @@ export async function listMatches(
 
 // Total match count for the same optional queue filter, so the page knows
 // how many pages to render without pulling every row down first.
-export async function countMatches(queueName?: string | null): Promise<number> {
+export async function countMatches(filter: MatchFilter, queueName?: string | null): Promise<number> {
   const queue = queueName ?? null;
   const { rows } = await sql<{ count: string }>`
     SELECT COUNT(*)::text AS count
     FROM matches
     WHERE (${queue}::text IS NULL OR queue_name = ${queue}::text)
+      AND roster_count >= ${filter.min}
+      AND game_creation_ms >= ${filter.sinceMs}
   `;
   return Number(rows[0]?.count ?? 0);
 }
@@ -382,9 +391,10 @@ export async function countMatches(queueName?: string | null): Promise<number> {
 // pills -- computed from the whole table, not just the current page, so a
 // mode doesn't disappear from the pills just because it has no games on
 // page 1.
-export async function listMatchQueues(): Promise<string[]> {
+export async function listMatchQueues(filter: MatchFilter): Promise<string[]> {
   const { rows } = await sql<{ queue_name: string }>`
     SELECT DISTINCT queue_name FROM matches
+    WHERE roster_count >= ${filter.min} AND game_creation_ms >= ${filter.sinceMs}
   `;
   return rows.map((r) => r.queue_name);
 }
@@ -413,32 +423,37 @@ const POSITION_ZH: Record<string, string> = {
 
 const RIFT_QUEUES = ["单双排", "灵活组排", "匹配"];
 
-export async function getMemberProfiles(): Promise<Map<string, MemberProfile>> {
+export async function getMemberProfiles(filter: MatchFilter): Promise<Map<string, MemberProfile>> {
   const out = new Map<string, MemberProfile>();
   try {
     const [totals, positions, champions] = await Promise.all([
       sql<{ member: string; games: string; wins: string }>`
-        SELECT member, COUNT(*)::text AS games, SUM(CASE WHEN win THEN 1 ELSE 0 END)::text AS wins
-        FROM match_players
-        WHERE member <> ''
-        GROUP BY member
+        SELECT mp.member, COUNT(*)::text AS games, SUM(CASE WHEN mp.win THEN 1 ELSE 0 END)::text AS wins
+        FROM match_players mp
+        JOIN matches m ON m.game_id = mp.game_id
+        WHERE mp.member <> ''
+          AND m.roster_count >= ${filter.min} AND m.game_creation_ms >= ${filter.sinceMs}
+        GROUP BY mp.member
       `,
       sql<{ member: string; position: string; games: string }>`
         SELECT mp.member, mp.position, COUNT(*)::text AS games
         FROM match_players mp
         JOIN matches m ON m.game_id = mp.game_id
         WHERE mp.member <> ''
+          AND m.roster_count >= ${filter.min} AND m.game_creation_ms >= ${filter.sinceMs}
           AND m.queue_name IN (${RIFT_QUEUES[0]}, ${RIFT_QUEUES[1]}, ${RIFT_QUEUES[2]})
           AND mp.position IN ('TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY')
         GROUP BY mp.member, mp.position
         ORDER BY mp.member, COUNT(*) DESC
       `,
       sql<{ member: string; champion: string; games: string; wins: string }>`
-        SELECT member, champion, COUNT(*)::text AS games, SUM(CASE WHEN win THEN 1 ELSE 0 END)::text AS wins
-        FROM match_players
-        WHERE member <> '' AND champion <> ''
-        GROUP BY member, champion
-        ORDER BY member, COUNT(*) DESC
+        SELECT mp.member, mp.champion, COUNT(*)::text AS games, SUM(CASE WHEN mp.win THEN 1 ELSE 0 END)::text AS wins
+        FROM match_players mp
+        JOIN matches m ON m.game_id = mp.game_id
+        WHERE mp.member <> '' AND mp.champion <> ''
+          AND m.roster_count >= ${filter.min} AND m.game_creation_ms >= ${filter.sinceMs}
+        GROUP BY mp.member, mp.champion
+        ORDER BY mp.member, COUNT(*) DESC
       `,
     ]);
     for (const r of totals.rows) {

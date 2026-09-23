@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import {
   countMatches,
   isDbConfigured,
@@ -6,6 +7,8 @@ import {
   type StoredMatch,
 } from "@/lib/db";
 import { getChampionIconMap, getDdragonVersion } from "@/lib/ddragon";
+import { parseFilters } from "@/lib/filters";
+import MatchFilterBar from "@/components/MatchFilterBar";
 import MatchSyncForm from "@/components/MatchSyncForm";
 import MatchesList from "@/components/MatchesList";
 
@@ -24,9 +27,11 @@ const QUEUE_ORDER = ["单双排", "灵活组排", "大乱斗", "海克斯大乱�
 export default async function MatchesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string; queue?: string }>;
+  searchParams: Promise<{ page?: string; queue?: string; min?: string; since?: string }>;
 }) {
-  const { page: rawPage, queue: rawQueue } = await searchParams;
+  const sp = await searchParams;
+  const { page: rawPage, queue: rawQueue } = sp;
+  const filters = parseFilters(sp);
   const dbReady = isDbConfigured();
   const queue = rawQueue && rawQueue !== "全部" ? rawQueue : undefined;
 
@@ -34,8 +39,8 @@ export default async function MatchesPage({
   // out-of-range ?page= from an old link or a filter change can't ask for
   // an offset past the end -- it just clamps to the last real page.
   const [total, rawQueues, version, championMap] = await Promise.all([
-    dbReady ? countMatches(queue) : Promise.resolve(0),
-    dbReady ? listMatchQueues() : Promise.resolve([] as string[]),
+    dbReady ? countMatches(filters, queue) : Promise.resolve(0),
+    dbReady ? listMatchQueues(filters) : Promise.resolve([] as string[]),
     getDdragonVersion(),
     getChampionIconMap(),
   ]);
@@ -45,12 +50,10 @@ export default async function MatchesPage({
   const offset = (page - 1) * PAGE_SIZE;
 
   const matches = dbReady
-    ? await listMatches(PAGE_SIZE, offset, queue)
+    ? await listMatches(filters, PAGE_SIZE, offset, queue)
     : ([] as StoredMatch[]);
 
   const availableQueues = QUEUE_ORDER.filter((q) => rawQueues.includes(q));
-  // Whether ANY match has ever been synced, regardless of the current
-  // filter -- distinct from `total`, which is scoped to `queue`.
   const hasAnyMatches = rawQueues.length > 0;
 
   return (
@@ -62,8 +65,17 @@ export default async function MatchesPage({
         <h1 className="font-display mt-3 text-4xl font-extrabold sm:text-5xl">战绩</h1>
       </div>
 
-      <div className="mb-10">
+      <div className="mb-6">
         <MatchSyncForm />
+      </div>
+
+      <div className="mb-8">
+        <Suspense fallback={null}>
+          <MatchFilterBar min={filters.min} sinceDate={filters.sinceDate} />
+        </Suspense>
+        <p className="mt-2 text-center text-xs text-[var(--muted)]">
+          当前: 同一方至少 {filters.min} 名成员 · {filters.sinceDate} 起 · 共 {total} 场
+        </p>
       </div>
 
       {!dbReady ? (
@@ -72,7 +84,7 @@ export default async function MatchesPage({
         </p>
       ) : !hasAnyMatches ? (
         <p className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-6 text-center text-sm text-[var(--muted)]">
-          还没有同步过战绩，粘贴 token 点一下同步吧。
+          当前筛选下没有对局。还没同步过的话，粘贴 token 点一下同步；同步过的话试试调低门槛人数或把起始日提前。
         </p>
       ) : (
         <MatchesList
@@ -83,6 +95,7 @@ export default async function MatchesPage({
           availableQueues={availableQueues}
           page={page}
           totalPages={totalPages}
+          filters={{ min: filters.min, sinceDate: filters.sinceDate }}
         />
       )}
     </div>
