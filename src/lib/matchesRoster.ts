@@ -22,6 +22,12 @@ export type RosterMember = {
 export const matchesRoster: RosterMember[] = [
   { name: "爱玩雪球的努努", riotId: "爱玩雪球的努努#19918", puuid: "bec5a57a-651b-5554-8c2f-e63baf6990c0" },
   { name: "爱抽陀螺的尼菈", riotId: "爱抽陀螺的尼菈#14963", puuid: "5fb0aae2-f231-5c56-a7ed-120c88c51772" },
+  // TODO puuid 待脚本查出: 爱击剑的菲欧娜#15653
+  // TODO puuid 待脚本查出: 爱吃素的狼人#64022
+  // TODO puuid 待脚本查出: 爱打ad的加里奥#33260
+  // TODO puuid 待脚本查出: 爱坐牢的adc#86913
+  // TODO puuid 待脚本查出: 爱玩VR的李青#14564
+  // TODO puuid 待脚本查出: 爱惊鸿过隙的幻翎#28116
 ];
 
 export const rosterPuuidSet = new Set(matchesRoster.map((m) => m.puuid));
