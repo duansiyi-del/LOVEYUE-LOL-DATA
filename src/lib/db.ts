@@ -9,8 +9,14 @@ export type { TeamStats };
 // Requires a Vercel Postgres store connected to this project (Storage tab
 // in the Vercel dashboard -- it wires up POSTGRES_URL etc. automatically).
 // Run db/schema.sql once against it before the first sync.
+// Neon 通过 Vercel Marketplace 接入时, 有的版本只注入 DATABASE_URL 而没有
+// POSTGRES_URL; @vercel/postgres 只认后者, 这里补一个别名.
+if (!process.env.POSTGRES_URL && process.env.DATABASE_URL) {
+  process.env.POSTGRES_URL = process.env.DATABASE_URL;
+}
+
 export function isDbConfigured(): boolean {
-  return Boolean(process.env.POSTGRES_URL);
+  return Boolean(process.env.POSTGRES_URL || process.env.DATABASE_URL);
 }
 
 export async function getKnownGameIds(): Promise<Set<string>> {
