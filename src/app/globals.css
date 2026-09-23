@@ -1,0 +1,63 @@
+@import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700;900&family=Inter:wght@400;500;600&display=swap");
+@import "tailwindcss";
+
+:root {
+  /* The whole site is a single fixed dark theme (no light mode toggle), so
+     tell the browser to render native form chrome -- <select> dropdowns,
+     the <input type="date"> calendar, datalist popups, scrollbars -- with
+     dark UA styling instead of the default stark-white popups, which used
+     to look jarring against the gold/dark design everywhere they appeared
+     (schedule 英雄意向 field, 峡谷基金 ledger type/date fields, ...). */
+  color-scheme: dark;
+  --bg: #0a0f1e;
+  --bg-panel: #0f172e;
+  --gold: #e7b655;
+  --gold-soft: #f0cd85;
+  --foreground: #eef1f8;
+  --muted: #8a93ab;
+  --border: rgba(231, 182, 85, 0.25);
+
+  /* categorical (validated against --bg-panel #0f172e, dark) */
+  --series-1: #3987e5; /* blue */
+  --series-2: #d95926; /* orange */
+  --series-3: #199e70; /* aqua */
+  --series-4: #c98500; /* yellow */
+  --series-5: #d55181; /* magenta */
+
+  /* status (fixed, never themed) */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-critical: #d03b3b;
+}
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--foreground);
+  --font-display: "Rajdhani", sans-serif;
+  --font-sans: "Inter", Arial, Helvetica, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(231, 182, 85, 0.08), transparent),
+    var(--bg);
+  color: var(--foreground);
+  font-family: "Inter", Arial, Helvetica, sans-serif;
+}
+
+.font-display {
+  font-family: "Rajdhani", sans-serif;
+}
+
+a {
+  color: inherit;
+}
