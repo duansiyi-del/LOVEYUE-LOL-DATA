@@ -10,8 +10,8 @@
 export const SGP_REGION_CODE = "GZ100";
 export const SGP_BASE = `https://${SGP_REGION_CODE}-sgp.lol.qq.com:21019`;
 
-// 同一方至少几名车队成员才算「车队局」.
-export const MIN_TEAM_MEMBERS = 3;
+// 同一方至少几名车队成员才算「车队局」. 名单凑齐前临时设 1 便于验证接口, 之后调回 3.
+export const MIN_TEAM_MEMBERS = 1;
 
 export type RosterMember = {
   name: string;
