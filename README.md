@@ -40,6 +40,13 @@ token 只在那一次请求里用, 不落库不打日志.
 - **对位** 按「同一分路 + 对面那边」配对, 只计召唤师峡谷. 补刀差 / 经济差是整场
   结束时的差值, 不是对线期的 -- 我们只拉了对局汇总, 没有时间轴数据, 一场滚雪球
   会放大差值. 排序用向 50% 收缩后的胜率, 少于 3 场不进排名.
+- **大盘对位胜率** 来自 OP.GG 官方 MCP 接口 (`https://mcp-api.op.gg/mcp`, 不需要
+  密钥, 见 `src/lib/opgg.ts`). 关键点: `lol_get_lane_matchup_guide` 返回的
+  `data.counters` 是该英雄在该分路对上【所有】英雄的完整列表, 一次调用就够, 不用
+  逐对去问. 英雄名要用显示名转大写下划线 (Wukong 的 Data Dragon key 是
+  MonkeyKing, 用 key 查不到). 在对位页点「刷新大盘对位数据」触发, 或
+  `curl -X POST <站点>/api/opgg/refresh`. 版本更新后刷一次即可.
+  ⚠ 那是全球大盘、不分段位, 只能当参照系, 结论要以我们自己的数据为准.
 - **ban 位** 从 `matches.team_stats` 的 JSON 里解析, 区分「对面 ban 的」和
   「我们 ban 的」.
 - **归因** 主判据是 `match_players.score` (rating.ts 在同一场十人之间归一化、按位置

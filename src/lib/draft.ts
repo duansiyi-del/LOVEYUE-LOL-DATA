@@ -217,23 +217,29 @@ export type MemberMatchup = {
   wins: number;
   csDiff: number;
   goldDiff: number;
-  // 常用哪几个英雄去对位 (按场次)
+  // 常用哪几个英雄去对位 (按场次降序)
   ownChampions: string[];
+  // 查大盘对位胜率要用: 自己用的英雄 id + 分路 + 场次, 按场次加权算基准
+  ownBreakdown: { championId: number; position: string; games: number }[];
 };
 
 const RIFT = ["单双排", "灵活组排", "匹配"];
 
 export async function memberMatchups(filter: MatchFilter): Promise<MemberMatchup[]> {
   try {
+    // 取到 (成员, 自己英雄, 分路, 对位英雄) 这一层, 再在 JS 里合并到展示需要的
+    // (成员, 对位英雄) —— 保留自己英雄和分路是为了能对上 OP.GG 的大盘数据.
     const { rows } = await sql<{
       member: string;
+      own_champion: string;
+      own_champion_id: number | null;
+      position: string;
       enemy_champion: string;
       enemy_champion_id: number | null;
       games: string;
       wins: string;
       cs_diff: string | null;
       gold_diff: string | null;
-      own_champions: string[] | null;
     }>`
       WITH our_team AS (
         SELECT mp.game_id, mp.team_id
@@ -248,7 +254,7 @@ export async function memberMatchups(filter: MatchFilter): Promise<MemberMatchup
       ),
       ours AS (
         SELECT mp.game_id, mp.member, mp.position, mp.champion AS own_champion,
-               mp.win, mp.cs, mp.gold
+               mp.champion_id AS own_champion_id, mp.win, mp.cs, mp.gold
         FROM match_players mp
         JOIN our_team t ON t.game_id = mp.game_id AND t.team_id = mp.team_id
         WHERE mp.member <> ''
@@ -261,28 +267,62 @@ export async function memberMatchups(filter: MatchFilter): Promise<MemberMatchup
         WHERE mp.position IN ('TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY')
           AND mp.champion <> ''
       )
-      SELECT o.member,
-             e.champion AS enemy_champion,
-             e.champion_id AS enemy_champion_id,
+      SELECT o.member, o.own_champion, o.own_champion_id, o.position,
+             e.champion AS enemy_champion, e.champion_id AS enemy_champion_id,
              COUNT(*)::text AS games,
              SUM(CASE WHEN o.win THEN 1 ELSE 0 END)::text AS wins,
              AVG(o.cs - e.cs)::text AS cs_diff,
-             AVG(o.gold - e.gold)::text AS gold_diff,
-             ARRAY_AGG(DISTINCT o.own_champion) AS own_champions
+             AVG(o.gold - e.gold)::text AS gold_diff
       FROM ours o
       JOIN theirs e ON e.game_id = o.game_id AND e.position = o.position
-      GROUP BY o.member, e.champion, e.champion_id
+      GROUP BY o.member, o.own_champion, o.own_champion_id, o.position, e.champion, e.champion_id
       ORDER BY o.member, COUNT(*) DESC
     `;
-    return rows.map((r) => ({
-      member: r.member,
-      enemyChampion: r.enemy_champion,
-      enemyChampionId: Number(r.enemy_champion_id ?? 0),
-      games: Number(r.games),
-      wins: Number(r.wins),
-      csDiff: Number(r.cs_diff ?? 0),
-      goldDiff: Number(r.gold_diff ?? 0),
-      ownChampions: (r.own_champions ?? []).filter(Boolean),
+
+    type Acc = MemberMatchup & { csSum: number; goldSum: number; ownGames: Map<string, number> };
+    const acc = new Map<string, Acc>();
+    for (const r of rows) {
+      const games = Number(r.games);
+      const key = `${r.member}|${r.enemy_champion}`;
+      const cur =
+        acc.get(key) ??
+        ({
+          member: r.member,
+          enemyChampion: r.enemy_champion,
+          enemyChampionId: Number(r.enemy_champion_id ?? 0),
+          games: 0,
+          wins: 0,
+          csDiff: 0,
+          goldDiff: 0,
+          ownChampions: [],
+          ownBreakdown: [],
+          csSum: 0,
+          goldSum: 0,
+          ownGames: new Map<string, number>(),
+        } as Acc);
+      cur.games += games;
+      cur.wins += Number(r.wins);
+      cur.csSum += Number(r.cs_diff ?? 0) * games;
+      cur.goldSum += Number(r.gold_diff ?? 0) * games;
+      cur.ownGames.set(r.own_champion, (cur.ownGames.get(r.own_champion) ?? 0) + games);
+      cur.ownBreakdown.push({
+        championId: Number(r.own_champion_id ?? 0),
+        position: r.position,
+        games,
+      });
+      acc.set(key, cur);
+    }
+
+    return [...acc.values()].map((a) => ({
+      member: a.member,
+      enemyChampion: a.enemyChampion,
+      enemyChampionId: a.enemyChampionId,
+      games: a.games,
+      wins: a.wins,
+      csDiff: a.games ? a.csSum / a.games : 0,
+      goldDiff: a.games ? a.goldSum / a.games : 0,
+      ownChampions: [...a.ownGames.entries()].sort((x, y) => y[1] - x[1]).map(([n]) => n),
+      ownBreakdown: a.ownBreakdown,
     }));
   } catch (err) {
     console.error("[memberMatchups] failed", err);

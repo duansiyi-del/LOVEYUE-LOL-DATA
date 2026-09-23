@@ -39,7 +39,7 @@ export function parseItemIds(items: string): number[] {
     .filter((n) => Number.isFinite(n) && n > 0);
 }
 
-type DdragonListing = { data: Record<string, { key: string; id: string }> };
+type DdragonListing = { data: Record<string, { key: string; id: string; name: string }> };
 
 async function fetchIdKeyMap(path: string): Promise<Record<number, string>> {
   const version = await getDdragonVersion();
@@ -92,4 +92,26 @@ export function summonerSpellIconUrl(
   const key = spellMap[spellId];
   if (!key) return null;
   return `https://ddragon.leagueoflegends.com/cdn/${version}/img/spell/${key}.png`;
+}
+
+let cachedChampionNames: Record<number, string> | null = null;
+
+/** 数字 championId -> 英文显示名 (266 -> "Aatrox", 62 -> "Wukong", 145 -> "Kai'Sa").
+ * 注意是 name 不是 id: OP.GG 认的是显示名, Wukong 的 id 是 MonkeyKing, 用 id 会查不到. */
+export async function getChampionNameMap(): Promise<Record<number, string>> {
+  if (cachedChampionNames) return cachedChampionNames;
+  const version = await getDdragonVersion();
+  try {
+    const res = await fetch(
+      `https://ddragon.leagueoflegends.com/cdn/${version}/data/en_US/champion.json`,
+      { next: { revalidate: 60 * 60 * 24 } }
+    );
+    const json = (await res.json()) as DdragonListing;
+    const map: Record<number, string> = {};
+    for (const entry of Object.values(json.data)) map[Number(entry.key)] = entry.name;
+    cachedChampionNames = map;
+  } catch {
+    cachedChampionNames = {};
+  }
+  return cachedChampionNames;
 }

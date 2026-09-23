@@ -3,9 +3,11 @@ import Link from "next/link";
 import championTitles from "@/data/championTitles.json";
 import { isDbConfigured } from "@/lib/db";
 import { banStats, memberMatchups, type MemberMatchup } from "@/lib/draft";
+import { loadOpggBaseline, type OpggBaseline } from "@/lib/opgg";
 import { parseFilters, applyFilterParams, type FilterInput } from "@/lib/filters";
 import { roster } from "@/lib/roster";
 import MatchFilterBar from "@/components/MatchFilterBar";
+import OpggRefreshButton from "@/components/OpggRefreshButton";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +35,21 @@ function shrunkRate(wins: number, games: number) {
   return (wins + 1) / (games + 2);
 }
 
-function MatchupTable({ rows }: { rows: MemberMatchup[]; tone?: "bad" | "good" }) {
+// 大盘基准: 按「自己用的英雄 + 分路」去查这个对位在 OP.GG 的胜率, 多个英雄时
+// 按场次加权. 查不到就返回 null (大盘样本不足, 或者还没刷过).
+function baselineFor(r: MemberMatchup, base: OpggBaseline): number | null {
+  let weighted = 0;
+  let weight = 0;
+  for (const o of r.ownBreakdown) {
+    const hit = base.matchups.get(`${o.championId}|${o.position}|${r.enemyChampionId}`);
+    if (!hit || !hit.play) continue;
+    weighted += (hit.win / hit.play) * o.games;
+    weight += o.games;
+  }
+  return weight ? weighted / weight : null;
+}
+
+function MatchupTable({ rows, base }: { rows: MemberMatchup[]; base: OpggBaseline; tone?: "bad" | "good" }) {
   if (!rows.length) {
     return <p className="px-3 py-4 text-sm text-[var(--muted)]">样本还不够。</p>;
   }
@@ -44,6 +60,8 @@ function MatchupTable({ rows }: { rows: MemberMatchup[]; tone?: "bad" | "good" }
           <th className="px-3 py-2 text-left">对位英雄</th>
           <th className="px-3 py-2 text-right">胜负</th>
           <th className="px-3 py-2 text-right">胜率</th>
+          <th className="px-3 py-2 text-right">大盘</th>
+          <th className="px-3 py-2 text-right">对比大盘</th>
           <th className="px-3 py-2 text-right">补刀差</th>
           <th className="px-3 py-2 text-right">经济差</th>
         </tr>
@@ -73,6 +91,30 @@ function MatchupTable({ rows }: { rows: MemberMatchup[]; tone?: "bad" | "good" }
             >
               {pct(r.wins / r.games)}
             </td>
+            {(() => {
+              const b = baselineFor(r, base);
+              const delta = b === null ? null : r.wins / r.games - b;
+              return (
+                <>
+                  <td className="px-3 py-2 text-right tabular-nums text-[var(--muted)]">
+                    {b === null ? "—" : pct(b)}
+                  </td>
+                  <td
+                    className={`px-3 py-2 text-right tabular-nums ${
+                      delta === null
+                        ? ""
+                        : delta < -0.08
+                          ? "text-[var(--status-critical)]"
+                          : delta > 0.08
+                            ? "text-[var(--status-good)]"
+                            : ""
+                    }`}
+                  >
+                    {delta === null ? "—" : `${delta >= 0 ? "+" : ""}${Math.round(delta * 100)}pp`}
+                  </td>
+                </>
+              );
+            })()}
             <td className="px-3 py-2 text-right tabular-nums">{signed(r.csDiff, 1)}</td>
             <td className="px-3 py-2 text-right tabular-nums">{signed(r.goldDiff)}</td>
           </tr>
@@ -114,9 +156,13 @@ export default async function MatchupsPage({
   const filters = parseFilters(sp);
   const dbReady = isDbConfigured();
 
-  const [matchups, bans] = dbReady
-    ? await Promise.all([memberMatchups(filters), banStats(filters)])
-    : [[] as MemberMatchup[], { againstUs: [], byUs: [], matches: 0 }];
+  const [matchups, bans, base] = dbReady
+    ? await Promise.all([memberMatchups(filters), banStats(filters), loadOpggBaseline()])
+    : [
+        [] as MemberMatchup[],
+        { againstUs: [], byUs: [], matches: 0 },
+        { matchups: new Map(), overall: new Map(), updatedAt: null } as OpggBaseline,
+      ];
 
   // 名单顺序优先, 名单外出现过的成员补在后面
   const withData = new Set(matchups.map((m) => m.member));
@@ -158,10 +204,16 @@ export default async function MatchupsPage({
         </p>
       </div>
 
-      <div className="mb-8">
+      <div className="mb-4">
         <Suspense fallback={null}>
           <MatchFilterBar min={filters.min} sinceDate={filters.sinceDate} untilDate={filters.untilDate} />
         </Suspense>
+      </div>
+
+      <div className="mb-8">
+        <OpggRefreshButton
+          updatedAt={base.updatedAt ? base.updatedAt.toLocaleDateString("zh-CN") : null}
+        />
       </div>
 
       {!dbReady ? (
@@ -212,13 +264,13 @@ export default async function MatchupsPage({
                   <p className="border-b border-[var(--border)] px-3 py-2 font-display text-sm font-semibold text-[var(--status-critical)]">
                     苦手
                   </p>
-                  <MatchupTable rows={worst} tone="bad" />
+                  <MatchupTable rows={worst} base={base} tone="bad" />
                 </div>
                 <div className="overflow-x-auto rounded-sm border border-[var(--status-good)]/40 bg-[var(--bg-panel)]">
                   <p className="border-b border-[var(--border)] px-3 py-2 font-display text-sm font-semibold text-[var(--status-good)]">
                     打得顺
                   </p>
-                  <MatchupTable rows={bestRows} tone="good" />
+                  <MatchupTable rows={bestRows} base={base} tone="good" />
                 </div>
               </div>
             ) : (
@@ -226,7 +278,7 @@ export default async function MatchupsPage({
                 <p className="border-b border-[var(--border)] px-3 py-2 font-display text-sm font-semibold text-[var(--gold)]">
                   全部对位（最难打的排前面）
                 </p>
-                <MatchupTable rows={worst} tone="bad" />
+                <MatchupTable rows={worst} base={base} tone="bad" />
               </div>
             )}
 
@@ -238,6 +290,13 @@ export default async function MatchupsPage({
               </p>
             ) : null}
           </section>
+
+          <p className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] px-4 py-3 text-xs leading-relaxed text-[var(--muted)]">
+            「大盘」是 OP.GG 上同一个对位的胜率，按你用的英雄和分路查，用多个英雄时按场次加权。
+            它回答的是「这个对位本来就难打，还是我打不好」：
+            大盘也低就是英雄天生被克，大盘不低而我们低才是自己的问题。
+            注意那是全球数据、不分段位，只能当参照不能当结论；显示「—」是大盘样本不足或还没刷过。
+          </p>
 
           <p className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] px-4 py-3 text-xs leading-relaxed text-[var(--muted)]">
             补刀差和经济差是<span className="text-[var(--foreground)]">整场结束时</span>的差值，不是对线期的差值。
