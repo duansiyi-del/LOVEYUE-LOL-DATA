@@ -4,7 +4,8 @@ import { isDbConfigured, getKnownGameIds, getIncompleteGameIds, insertGames } fr
 import { SgpAuthError, syncAllRosterGames } from "@/lib/sgp";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// 首次全量回填 8 人 x 最多 400 场, 加防风控间隔可能要几分钟; Vercel Fluid 上限 300s.
+export const maxDuration = 300;
 
 // POST { token, refreshAll? } -> fetches everyone's recent ranked history
 // with that one SGP token, keeps only 车队 games (>= MIN_TEAM_MEMBERS
