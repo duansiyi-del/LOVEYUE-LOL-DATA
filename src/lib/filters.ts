@@ -9,12 +9,17 @@
 export const DEFAULT_MIN_TEAM_MEMBERS = 3;
 export const DEFAULT_SINCE_DATE = "2026-09-01";
 
-// 赛段快捷选项. 名字和日期先占位, 以客户端排位页 / 官方公告为准改这里.
-// until 为空 = 到现在. 新赛段开始时加一行即可.
+// 赛段快捷选项. 2026 年三赛段随版本切换, 全球统一 (含国服):
+//   S1 26.1~26.8   2026-01-08 ~ 04-28
+//   S2 26.9~26.14  2026-04-29 ~ 07-28
+//   S3 26.15~      2026-07-29 ~ 2027 年 1 月初
+// 切换在开始日中午 12:00, 这里按整天划, 切换日上午的对局会归入新赛段 (可忽略).
+// 来源: esports.net 2026 ranked season end / loltheory.gg season guide / 26.15 patch notes.
+// until 为空 = 到现在. 新赛段开始时加一行.
 export const SEASON_PRESETS: { label: string; since: string; until: string }[] = [
-  { label: "2026 第一赛段", since: "2026-01-09", until: "2026-05-13" },
-  { label: "2026 第二赛段", since: "2026-05-14", until: "2026-09-09" },
-  { label: "2026 第三赛段", since: "2026-09-10", until: "" },
+  { label: "2026 第一赛段", since: "2026-01-08", until: "2026-04-28" },
+  { label: "2026 第二赛段", since: "2026-04-29", until: "2026-07-28" },
+  { label: "2026 第三赛段", since: "2026-07-29", until: "" },
 ];
 
 export type DisplayFilters = {
