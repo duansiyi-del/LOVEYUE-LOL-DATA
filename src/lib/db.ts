@@ -389,6 +389,74 @@ export async function listMatchQueues(): Promise<string[]> {
   return rows.map((r) => r.queue_name);
 }
 
+// ---- 名单页: 从战绩自动统计每个成员的分路 / 英雄池 -----------------------
+// 分路只看召唤师峡谷模式 (单双排/灵活/匹配), 大乱斗没有分路.
+// 英雄池看全部模式.
+
+export type MemberProfile = {
+  member: string;
+  games: number;
+  wins: number;
+  // 按场次降序, 已翻成中文 (上单/打野/中单/下路/辅助)
+  positions: { name: string; games: number }[];
+  // 按场次降序
+  champions: { name: string; games: number; wins: number }[];
+};
+
+const POSITION_ZH: Record<string, string> = {
+  TOP: "上单",
+  JUNGLE: "打野",
+  MIDDLE: "中单",
+  BOTTOM: "下路",
+  UTILITY: "辅助",
+};
+
+const RIFT_QUEUES = ["单双排", "灵活组排", "匹配"];
+
+export async function getMemberProfiles(): Promise<Map<string, MemberProfile>> {
+  const out = new Map<string, MemberProfile>();
+  try {
+    const [totals, positions, champions] = await Promise.all([
+      sql<{ member: string; games: string; wins: string }>`
+        SELECT member, COUNT(*)::text AS games, SUM(CASE WHEN win THEN 1 ELSE 0 END)::text AS wins
+        FROM match_players
+        WHERE member <> ''
+        GROUP BY member
+      `,
+      sql<{ member: string; position: string; games: string }>`
+        SELECT mp.member, mp.position, COUNT(*)::text AS games
+        FROM match_players mp
+        JOIN matches m ON m.game_id = mp.game_id
+        WHERE mp.member <> ''
+          AND m.queue_name IN (${RIFT_QUEUES[0]}, ${RIFT_QUEUES[1]}, ${RIFT_QUEUES[2]})
+          AND mp.position IN ('TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY')
+        GROUP BY mp.member, mp.position
+        ORDER BY mp.member, COUNT(*) DESC
+      `,
+      sql<{ member: string; champion: string; games: string; wins: string }>`
+        SELECT member, champion, COUNT(*)::text AS games, SUM(CASE WHEN win THEN 1 ELSE 0 END)::text AS wins
+        FROM match_players
+        WHERE member <> '' AND champion <> ''
+        GROUP BY member, champion
+        ORDER BY member, COUNT(*) DESC
+      `,
+    ]);
+    for (const r of totals.rows) {
+      out.set(r.member, { member: r.member, games: Number(r.games), wins: Number(r.wins), positions: [], champions: [] });
+    }
+    for (const r of positions.rows) {
+      out.get(r.member)?.positions.push({ name: POSITION_ZH[r.position] ?? r.position, games: Number(r.games) });
+    }
+    for (const r of champions.rows) {
+      out.get(r.member)?.champions.push({ name: r.champion, games: Number(r.games), wins: Number(r.wins) });
+    }
+  } catch (err) {
+    // 表还没建 / 库没连: 名单页照常渲染, 只是没有统计
+    console.error("[getMemberProfiles] failed", err);
+  }
+  return out;
+}
+
 export async function getMatch(gameId: string): Promise<StoredMatch | null> {
   const { rows } = await sql<MatchRow>`
     SELECT m.game_id, m.game_creation_ms, m.duration_min, m.queue_name, m.roster_count, m.team_stats,
