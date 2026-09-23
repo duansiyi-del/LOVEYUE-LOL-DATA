@@ -48,6 +48,10 @@ export async function championProfiles(filter: MatchFilter): Promise<ChampionPro
         WHERE mp.champion <> ''
           AND m.game_creation_ms >= ${filter.sinceMs}
           AND (${filter.untilMs}::bigint IS NULL OR m.game_creation_ms < ${filter.untilMs}::bigint)
+          -- 只算认得出的正式模式且打满五分钟的局: 自定义 / 人机 / 秒退重开的
+          -- 数据会把英雄档案带偏 (两分钟的局输出接近 0)
+          AND m.queue_name <> ''
+          AND m.duration_min >= 5
       )
       SELECT champion, champion_id,
              COUNT(*)::text AS games,
