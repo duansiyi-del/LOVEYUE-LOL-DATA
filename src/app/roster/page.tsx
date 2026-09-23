@@ -72,8 +72,10 @@ export default async function RosterPage({
                   />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center">
+                    {/* 没头像时的占位: 取名字末字, 比首字有区分度
+                        (车队昵称清一色「爱...」开头) */}
                     <span className="font-display text-6xl font-black text-[var(--gold)]/40">
-                      {p.nickname.slice(0, 1)}
+                      {p.nickname.slice(-1)}
                     </span>
                   </div>
                 )}

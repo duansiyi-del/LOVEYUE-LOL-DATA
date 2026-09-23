@@ -9,6 +9,7 @@ const links = [
   { href: "/roster", label: "选手名单" },
   { href: "/matches", label: "战绩" },
   { href: "/draft", label: "阵容分析" },
+  { href: "/matchups", label: "对位分析" },
 ];
 
 export default function NavBar() {
