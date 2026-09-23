@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { applyFilterParams } from "@/lib/filters";
+import { applyFilterParams, type FilterInput } from "@/lib/filters";
 import type { StoredMatch, StoredPlayer } from "@/lib/db";
 import { championIconUrl } from "@/lib/ddragon";
 import Pill from "@/components/Pill";
@@ -34,7 +34,7 @@ function formatTime(ms: number) {
 // Builds the /matches?queue=...&page=... href for a filter pill or a
 // pagination link. "全部" and page 1 are the defaults, so they're left off
 // the query string entirely rather than written out as queue=全部&page=1.
-function matchesHref(queue: string, page: number, filters: { min: number; sinceDate: string }) {
+function matchesHref(queue: string, page: number, filters: FilterInput) {
   const params = new URLSearchParams();
   if (queue !== "全部") params.set("queue", queue);
   if (page > 1) params.set("page", String(page));
@@ -177,7 +177,7 @@ export default function MatchesList({
 }: {
   matches: StoredMatch[];
   // 门槛人数 + 起始日, 翻页 / 切模式时要带着走
-  filters: { min: number; sinceDate: string };
+  filters: FilterInput;
   version: string;
   championMap: Record<number, string>;
   // "全部" or one of availableQueues -- which filter pill is active.

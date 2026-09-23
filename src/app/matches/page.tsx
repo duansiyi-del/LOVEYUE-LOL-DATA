@@ -27,7 +27,7 @@ const QUEUE_ORDER = ["单双排", "灵活组排", "大乱斗", "海克斯大乱�
 export default async function MatchesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string; queue?: string; min?: string; since?: string }>;
+  searchParams: Promise<{ page?: string; queue?: string; min?: string; since?: string; until?: string }>;
 }) {
   const sp = await searchParams;
   const { page: rawPage, queue: rawQueue } = sp;
@@ -71,10 +71,10 @@ export default async function MatchesPage({
 
       <div className="mb-8">
         <Suspense fallback={null}>
-          <MatchFilterBar min={filters.min} sinceDate={filters.sinceDate} />
+          <MatchFilterBar min={filters.min} sinceDate={filters.sinceDate} untilDate={filters.untilDate} />
         </Suspense>
         <p className="mt-2 text-center text-xs text-[var(--muted)]">
-          当前: 同一方至少 {filters.min} 名成员 · {filters.sinceDate} 起 · 共 {total} 场
+          当前: 同一方至少 {filters.min} 名成员 · {filters.sinceDate} 至 {filters.untilDate || "现在"} · 共 {total} 场
         </p>
       </div>
 
@@ -95,7 +95,7 @@ export default async function MatchesPage({
           availableQueues={availableQueues}
           page={page}
           totalPages={totalPages}
-          filters={{ min: filters.min, sinceDate: filters.sinceDate }}
+          filters={{ min: filters.min, sinceDate: filters.sinceDate, untilDate: filters.untilDate }}
         />
       )}
     </div>

@@ -248,6 +248,8 @@ export type GameRecord = {
   queueId: number;
   queueName: string;
   gameMode: string;
+  // 客户端版本号, 如 "15.18.712.1234". 赛段切换伴随版本更新, 留着以后按版本分组.
+  gameVersion: string;
   rosterCount: number;
   players: PlayerRow[];
   // Keyed by teamId ("100"/"200") -- null for the rare game whose raw
@@ -390,6 +392,7 @@ export function buildGameRecord(g: Json): GameRecord {
     queueId,
     queueName: GAME_QUEUES[queueId] ?? "",
     gameMode: String(pick(g, "gameMode") ?? ""),
+    gameVersion: String(pick(g, "gameVersion") ?? ""),
     rosterCount: teamRosterCount(g, participants),
     players,
     teamStats: buildTeamStats(g),

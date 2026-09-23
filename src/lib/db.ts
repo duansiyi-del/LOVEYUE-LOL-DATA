@@ -118,26 +118,34 @@ async function insertGamePlayers(
 // every game committed before that stays fully intact. A single game's
 // insert failing (a genuinely malformed record) is logged and skipped
 // rather than aborting the rest of the batch.
+let schemaPatched = false;
+
 export async function insertGames(games: GameRecord[]): Promise<void> {
   const client = await db.connect();
   try {
+    // 后加的列, 老库没有时自动补, 免得手工再跑一次 SQL
+    if (!schemaPatched) {
+      await client.query("ALTER TABLE matches ADD COLUMN IF NOT EXISTS game_version TEXT");
+      schemaPatched = true;
+    }
     for (const g of games) {
       try {
         await client.query("BEGIN");
         const teamStatsJson = g.teamStats ? JSON.stringify(g.teamStats) : null;
         await client.query(
           `INSERT INTO matches (
-            game_id, game_creation_ms, duration_min, queue_id, queue_name, game_mode, roster_count, team_stats
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            game_id, game_creation_ms, duration_min, queue_id, queue_name, game_mode, game_version, roster_count, team_stats
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
           ON CONFLICT (game_id) DO UPDATE SET
             game_creation_ms = EXCLUDED.game_creation_ms,
             duration_min = EXCLUDED.duration_min,
             queue_id = EXCLUDED.queue_id,
             queue_name = EXCLUDED.queue_name,
             game_mode = EXCLUDED.game_mode,
+            game_version = EXCLUDED.game_version,
             roster_count = EXCLUDED.roster_count,
             team_stats = EXCLUDED.team_stats`,
-          [g.gameId, g.gameCreationMs, g.durationMin, g.queueId, g.queueName, g.gameMode, g.rosterCount, teamStatsJson]
+          [g.gameId, g.gameCreationMs, g.durationMin, g.queueId, g.queueName, g.gameMode, g.gameVersion, g.rosterCount, teamStatsJson]
         );
         await insertGamePlayers(client, g.gameId, g.players);
         await client.query("COMMIT");
@@ -335,7 +343,8 @@ function groupMatches(rows: MatchRow[]): StoredMatch[] {
 
 // 展示层筛选: 同一方车队人数 >= min, 开局时间 >= sinceMs. 拉取端存得更全
 // (见 matchesRoster.ts), 这里按前端传来的参数过滤 (见 filters.ts).
-export type MatchFilter = { min: number; sinceMs: number };
+// untilMs 为不含上界 (截止日次日 00:00), null 表示不限.
+export type MatchFilter = { min: number; sinceMs: number; untilMs: number | null };
 
 export async function listMatches(
   filter: MatchFilter,
@@ -364,6 +373,7 @@ export async function listMatches(
       WHERE (${queue}::text IS NULL OR queue_name = ${queue}::text)
         AND roster_count >= ${filter.min}
         AND game_creation_ms >= ${filter.sinceMs}
+        AND (${filter.untilMs}::bigint IS NULL OR game_creation_ms < ${filter.untilMs}::bigint)
       ORDER BY game_creation_ms DESC
       LIMIT ${limit} OFFSET ${offset}
     ) m
@@ -383,6 +393,7 @@ export async function countMatches(filter: MatchFilter, queueName?: string | nul
     WHERE (${queue}::text IS NULL OR queue_name = ${queue}::text)
       AND roster_count >= ${filter.min}
       AND game_creation_ms >= ${filter.sinceMs}
+        AND (${filter.untilMs}::bigint IS NULL OR game_creation_ms < ${filter.untilMs}::bigint)
   `;
   return Number(rows[0]?.count ?? 0);
 }
@@ -395,6 +406,8 @@ export async function listMatchQueues(filter: MatchFilter): Promise<string[]> {
   const { rows } = await sql<{ queue_name: string }>`
     SELECT DISTINCT queue_name FROM matches
     WHERE roster_count >= ${filter.min} AND game_creation_ms >= ${filter.sinceMs}
+      AND (${filter.untilMs}::bigint IS NULL OR game_creation_ms < ${filter.untilMs}::bigint)
+        AND (${filter.untilMs}::bigint IS NULL OR game_creation_ms < ${filter.untilMs}::bigint)
   `;
   return rows.map((r) => r.queue_name);
 }
@@ -433,6 +446,7 @@ export async function getMemberProfiles(filter: MatchFilter): Promise<Map<string
         JOIN matches m ON m.game_id = mp.game_id
         WHERE mp.member <> ''
           AND m.roster_count >= ${filter.min} AND m.game_creation_ms >= ${filter.sinceMs}
+          AND (${filter.untilMs}::bigint IS NULL OR m.game_creation_ms < ${filter.untilMs}::bigint)
         GROUP BY mp.member
       `,
       sql<{ member: string; position: string; games: string }>`
@@ -441,6 +455,7 @@ export async function getMemberProfiles(filter: MatchFilter): Promise<Map<string
         JOIN matches m ON m.game_id = mp.game_id
         WHERE mp.member <> ''
           AND m.roster_count >= ${filter.min} AND m.game_creation_ms >= ${filter.sinceMs}
+          AND (${filter.untilMs}::bigint IS NULL OR m.game_creation_ms < ${filter.untilMs}::bigint)
           AND m.queue_name IN (${RIFT_QUEUES[0]}, ${RIFT_QUEUES[1]}, ${RIFT_QUEUES[2]})
           AND mp.position IN ('TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY')
         GROUP BY mp.member, mp.position
@@ -452,6 +467,7 @@ export async function getMemberProfiles(filter: MatchFilter): Promise<Map<string
         JOIN matches m ON m.game_id = mp.game_id
         WHERE mp.member <> '' AND mp.champion <> ''
           AND m.roster_count >= ${filter.min} AND m.game_creation_ms >= ${filter.sinceMs}
+          AND (${filter.untilMs}::bigint IS NULL OR m.game_creation_ms < ${filter.untilMs}::bigint)
         GROUP BY mp.member, mp.champion
         ORDER BY mp.member, COUNT(*) DESC
       `,

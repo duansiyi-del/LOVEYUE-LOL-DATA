@@ -16,7 +16,7 @@ export const metadata = {
 export default async function RosterPage({
   searchParams,
 }: {
-  searchParams: Promise<{ min?: string; since?: string }>;
+  searchParams: Promise<{ min?: string; since?: string; until?: string }>;
 }) {
   const filters = parseFilters(await searchParams);
   const profiles = isDbConfigured() ? await getMemberProfiles(filters) : new Map<string, MemberProfile>();
@@ -37,7 +37,7 @@ export default async function RosterPage({
 
       <div className="mb-10">
         <Suspense fallback={null}>
-          <MatchFilterBar min={filters.min} sinceDate={filters.sinceDate} />
+          <MatchFilterBar min={filters.min} sinceDate={filters.sinceDate} untilDate={filters.untilDate} />
         </Suspense>
       </div>
 

@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS matches (
   queue_id          INTEGER,
   queue_name        TEXT,
   game_mode         TEXT,
+  game_version      TEXT,
   roster_count      INTEGER,
   -- 每队目标物 (小龙/大龙/塔/...) 与 ban 位, JSON, 见 sgp.ts 的 TeamStats
   team_stats        TEXT,
