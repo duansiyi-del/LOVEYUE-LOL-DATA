@@ -28,6 +28,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 $logDir = Join-Path $env:LOCALAPPDATA "loveyue-sync"
+
+# 没显式传参时读启动器保存的配置 (菜单里设的网站地址 / 代理), 这样计划任务
+# 不用带参数, 改了配置也不用重设任务.
+$cfgFile = Join-Path $logDir "config.json"
+if (Test-Path $cfgFile) {
+  try {
+    $cfg = Get-Content $cfgFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (-not $PSBoundParameters.ContainsKey('SiteUrl') -and $cfg.SiteUrl) { $SiteUrl = $cfg.SiteUrl }
+    if (-not $PSBoundParameters.ContainsKey('Proxy') -and $cfg.Proxy) { $Proxy = $cfg.Proxy }
+  } catch {}
+}
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $logFile = Join-Path $logDir "sync.log"
 
