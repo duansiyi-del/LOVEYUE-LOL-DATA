@@ -76,7 +76,7 @@ export const roster: Player[] = [
     alias: "TT",
     positions: [],
     champions: [],
-    photo: "",
+    photo: "/roster/p5.jpg",
     number: 5,
   },
   {
