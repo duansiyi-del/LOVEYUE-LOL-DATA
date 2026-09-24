@@ -8,7 +8,7 @@
 // 改完 tools/ 下任何文件都要重新跑一次, 然后 commit 产物.
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync, cpSync, readdirSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, cpSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -38,6 +38,18 @@ for (const name of readdirSync(toolsDir)) {
   const dest = RENAME[name] ?? name;
   if (/[^\x00-\x7F]/.test(dest)) {
     throw new Error(`包里出现了非 ASCII 文件名: ${dest} —— 在 RENAME 里给它一个英文名`);
+  }
+  // .ps1 必须带 UTF-8 BOM. Windows PowerShell 5 没有 BOM 就按系统代码页 (国服是
+  // GBK) 读整个文件, 于是脚本里的中文全部乱码 —— 更糟的是"场"这类字的 UTF-8 尾字节
+  // 会被当成 GBK 前导字节, 把后面那个引号一起吃掉, 字符串就断了, 整个脚本报
+  // "表达式中缺少右)". 真发生过一次: 用 Python 回写文件时写成 utf-8 而不是
+  // utf-8-sig, BOM 没了, 队友一运行就满屏解析错误.
+  // 这台开发机上没有 pwsh 能先跑一遍语法, 所以这条拦在打包这一步.
+  if (name.endsWith(".ps1")) {
+    const head = readFileSync(join(toolsDir, name)).subarray(0, 3);
+    if (!(head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf)) {
+      throw new Error(`${name} 缺 UTF-8 BOM —— PowerShell 5 会按 GBK 读, 中文乱码且字符串会断. 补上 BOM 再打包.`);
+    }
   }
   cpSync(join(toolsDir, name), join(stageDir, dest));
   copied++;
