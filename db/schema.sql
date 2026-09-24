@@ -59,6 +59,19 @@ CREATE TABLE IF NOT EXISTS match_players (
   heals_on_teammates    BIGINT,
   gold_spent            BIGINT,
   time_spent_dead       INTEGER,
+  -- 分位置榜单用的细分数据
+  damage_to_objectives  INTEGER,
+  total_damage_dealt    BIGINT,
+  physical_damage_taken INTEGER,
+  magic_damage_taken    INTEGER,
+  true_damage_taken     INTEGER,
+  jungle_enemy          INTEGER,
+  jungle_own            INTEGER,
+  turret_kills          INTEGER,
+  inhibitor_kills       INTEGER,
+  units_healed          INTEGER,
+  total_cc_dealt        INTEGER,
+  longest_time_living   INTEGER,
   PRIMARY KEY (game_id, puuid)
 );
 

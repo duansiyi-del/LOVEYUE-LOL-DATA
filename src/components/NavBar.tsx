@@ -11,6 +11,7 @@ const links = [
   { href: "/draft", label: "阵容分析" },
   { href: "/matchups", label: "对位分析" },
   { href: "/attribution", label: "组队归因" },
+  { href: "/leaderboard", label: "数据榜单" },
   { href: "/report", label: "战队体检" },
 ];
 

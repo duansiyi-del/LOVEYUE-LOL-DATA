@@ -216,6 +216,20 @@ export type PlayerRow = {
   healsOnTeammates: number;
   goldSpent: number;
   timeSpentDead: number;
+  // ---- 以下为分位置榜单用的细分数据 (2026-09-24 增补) ----
+  // 打野看反野和目标物伤害, 坦克看承伤构成, 辅助看治疗和控制.
+  damageToObjectives: number; // 对小龙大龙塔等目标物的伤害
+  totalDamageDealt: number; // 总输出 (含对小兵野怪), 和 damageToChampions 区分开
+  physicalDamageTaken: number;
+  magicDamageTaken: number;
+  trueDamageTaken: number;
+  jungleEnemy: number; // 在对方野区打的野怪 = 反野
+  jungleOwn: number; // 在自家野区打的野怪
+  turretKills: number;
+  inhibitorKills: number;
+  unitsHealed: number; // 治疗过的单位数 (含自己)
+  totalCcDealt: number; // 控制总时长, 口径比 ccTime 宽
+  longestTimeSpentLiving: number; // 最长存活时间 (秒)
 };
 
 export type TeamStats = {
@@ -382,6 +396,18 @@ export function buildGameRecord(g: Json): GameRecord {
       healsOnTeammates: num(p.totalHealsOnTeammates),
       goldSpent: num(p.goldSpent),
       timeSpentDead: num(p.totalTimeSpentDead),
+      damageToObjectives: num(p.damageDealtToObjectives),
+      totalDamageDealt: num(p.totalDamageDealt),
+      physicalDamageTaken: num(p.physicalDamageTaken),
+      magicDamageTaken: num(p.magicalDamageTaken),
+      trueDamageTaken: num(p.trueDamageTaken),
+      jungleEnemy: num(p.neutralMinionsKilledEnemyJungle),
+      jungleOwn: num(p.neutralMinionsKilledTeamJungle),
+      turretKills: num(p.turretKills),
+      inhibitorKills: num(p.inhibitorKills),
+      unitsHealed: num(p.totalUnitsHealed),
+      totalCcDealt: num(p.totalTimeCrowdControlDealt),
+      longestTimeSpentLiving: num(p.longestTimeSpentLiving),
     };
   });
 

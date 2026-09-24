@@ -53,6 +53,7 @@ const MATCH_PLAYER_COLUMNS = [
   "damage_taken", "heal", "turret_damage", "cc_time", "cs", "vision_score", "wards_placed",
   "wards_killed", "champ_level", "items", "damage_self_mitigated", "killing_sprees",
   "largest_killing_spree", "objectives_stolen", "heals_on_teammates", "gold_spent", "time_spent_dead",
+  "damage_to_objectives", "total_damage_dealt", "physical_damage_taken", "magic_damage_taken", "true_damage_taken", "jungle_enemy", "jungle_own", "turret_kills", "inhibitor_kills", "units_healed", "total_cc_dealt", "longest_time_living",
 ] as const;
 
 function playerRowValues(gameId: string, p: GameRecord["players"][number]): unknown[] {
@@ -63,6 +64,7 @@ function playerRowValues(gameId: string, p: GameRecord["players"][number]): unkn
     p.damageTaken, p.heal, p.turretDamage, p.ccTime, p.cs, p.visionScore, p.wardsPlaced,
     p.wardsKilled, p.champLevel, p.items, p.damageSelfMitigated, p.killingSprees,
     p.largestKillingSpree, p.objectivesStolen, p.healsOnTeammates, p.goldSpent, p.timeSpentDead,
+    p.damageToObjectives, p.totalDamageDealt, p.physicalDamageTaken, p.magicDamageTaken, p.trueDamageTaken, p.jungleEnemy, p.jungleOwn, p.turretKills, p.inhibitorKills, p.unitsHealed, p.totalCcDealt, p.longestTimeSpentLiving,
   ];
 }
 
@@ -126,6 +128,20 @@ export async function insertGames(games: GameRecord[]): Promise<void> {
     // 后加的列, 老库没有时自动补, 免得手工再跑一次 SQL
     if (!schemaPatched) {
       await client.query("ALTER TABLE matches ADD COLUMN IF NOT EXISTS game_version TEXT");
+      // 分位置榜单用的细分数据, 老库自动补上; 老对局要等一次 refreshAll 才有值
+      await client.query(`ALTER TABLE match_players
+        ADD COLUMN IF NOT EXISTS damage_to_objectives  INTEGER,
+        ADD COLUMN IF NOT EXISTS total_damage_dealt    BIGINT,
+        ADD COLUMN IF NOT EXISTS physical_damage_taken INTEGER,
+        ADD COLUMN IF NOT EXISTS magic_damage_taken    INTEGER,
+        ADD COLUMN IF NOT EXISTS true_damage_taken     INTEGER,
+        ADD COLUMN IF NOT EXISTS jungle_enemy          INTEGER,
+        ADD COLUMN IF NOT EXISTS jungle_own            INTEGER,
+        ADD COLUMN IF NOT EXISTS turret_kills          INTEGER,
+        ADD COLUMN IF NOT EXISTS inhibitor_kills       INTEGER,
+        ADD COLUMN IF NOT EXISTS units_healed          INTEGER,
+        ADD COLUMN IF NOT EXISTS total_cc_dealt        INTEGER,
+        ADD COLUMN IF NOT EXISTS longest_time_living   INTEGER`);
       schemaPatched = true;
     }
     for (const g of games) {

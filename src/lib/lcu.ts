@@ -258,6 +258,18 @@ export function buildGameRecordFromLcu(g: LcuGame): GameRecord | null {
       healsOnTeammates: 0,
       goldSpent: num(s.goldSpent),
       timeSpentDead: 0,
+      damageToObjectives: num(s.damageDealtToObjectives),
+      totalDamageDealt: num(s.totalDamageDealt),
+      physicalDamageTaken: num(s.physicalDamageTaken),
+      magicDamageTaken: num(s.magicalDamageTaken),
+      trueDamageTaken: num(s.trueDamageTaken),
+      jungleEnemy: num(s.neutralMinionsKilledEnemyJungle),
+      jungleOwn: num(s.neutralMinionsKilledTeamJungle),
+      turretKills: num(s.turretKills),
+      inhibitorKills: num(s.inhibitorKills),
+      unitsHealed: num(s.totalUnitsHealed),
+      totalCcDealt: num(s.totalTimeCrowdControlDealt),
+      longestTimeSpentLiving: num(s.longestTimeSpentLiving),
     };
   });
 
