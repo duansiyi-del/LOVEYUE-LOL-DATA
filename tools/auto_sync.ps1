@@ -131,13 +131,38 @@ try {
   $seen = 0
   $oldestMs = 0
   $beg = 0
+  $pageSize = 20
+
+  # 客户端历史接口一次最多给 20 条, 要靠 begIndex/endIndex 翻页.
+  # 两个路径都试: current-summoner 的有时翻到第二页就不给了, 带 puuid 的那个
+  # 通常能翻更深. 每页都记日志, 断在哪一页一目了然.
+  $myPuuid = [string]$me.puuid
+  $pathForms = @(
+    "/lol-match-history/v1/products/lol/current-summoner/matches?begIndex={0}&endIndex={1}",
+    "/lol-match-history/v1/products/lol/$myPuuid/matches?begIndex={0}&endIndex={1}"
+  )
+  $formIdx = 0
+
   while ($beg -lt $MaxScan) {
-    $end = [Math]::Min($beg + 19, $MaxScan - 1)
+    $end = [Math]::Min($beg + $pageSize - 1, $MaxScan - 1)
     $lf = Join-Path $tmpDir "list.json"
-    if ((LcuRaw "/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=$beg&endIndex=$end" $lf) -ne "200") { break }
-    $list = Get-Content $lf -Raw -Encoding UTF8 | ConvertFrom-Json
+    $path = [string]::Format($pathForms[$formIdx], $beg, $end)
+    $code = LcuRaw $path $lf
+    if ($code -ne "200") {
+      Log "  翻页停在 begIndex=$beg (http $code)"
+      # 当前路径不行就换另一种写法, 从同一位置继续
+      if ($formIdx -lt ($pathForms.Count - 1)) {
+        $formIdx++
+        Log "  改用第 $($formIdx + 1) 种接口写法重试"
+        continue
+      }
+      break
+    }
+    try { $list = Get-Content $lf -Raw -Encoding UTF8 | ConvertFrom-Json } catch { Log "  第 $beg 页解析失败"; break }
     $games = $list.games.games
-    if (-not $games -or $games.Count -eq 0) { break }
+    $got = if ($games) { @($games).Count } else { 0 }
+    Log "  begIndex=$beg 拿到 $got 场"
+    if ($got -eq 0) { break }
     foreach ($g in $games) {
       $gid = [string]$g.gameId
       $seen++
@@ -145,9 +170,11 @@ try {
       if ($ms -gt 0 -and ($oldestMs -eq 0 -or $ms -lt $oldestMs)) { $oldestMs = $ms }
       if ($gid -and -not $known.ContainsKey($gid)) { [void]$newIds.Add($gid) }
     }
-    if ($games.Count -lt ($end - $beg + 1)) { break }
+    # 不足一页 = 翻到头了
+    if ($got -lt ($end - $beg + 1)) { Log "  已翻到历史尽头"; break }
     $beg = $end + 1
   }
+
   $newIds = $newIds | Select-Object -Unique
   $oldestTxt = if ($oldestMs -gt 0) {
     ([DateTimeOffset]::FromUnixTimeMilliseconds([long]$oldestMs)).LocalDateTime.ToString("yyyy-MM-dd")
