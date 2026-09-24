@@ -163,7 +163,12 @@ try {
         $code = & curl.exe -s -m 290 -o $srf -w "%{http_code}" @proxyArgs -X POST -H "Content-Type: application/json" --data-binary "@$sf" "$SiteUrl/api/matches/sync" 2>$null
         Remove-Item $sf -Force -ErrorAction SilentlyContinue
         if ($code -ne "200") {
-          $sgpFail = "http $code"
+          # 把服务端返回的原因也打出来. 只有状态码的话每次都得靠猜是 token 被拒、
+          # 网关拦了还是我们自己的代码报错. 这个响应体里不含 token, 只有错误文案.
+          $detail = ""
+          if (Test-Path $srf) { $detail = (Get-Content $srf -Raw -Encoding UTF8).Trim() }
+          if ($detail.Length -gt 300) { $detail = $detail.Substring(0, 300) }
+          $sgpFail = "http $code $detail"
           Log ("  {0}: 失败 ({1})" -f $m.name, $sgpFail)
           break
         }
