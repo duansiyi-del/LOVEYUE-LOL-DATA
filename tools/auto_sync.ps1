@@ -50,7 +50,11 @@ $logFile = Join-Path $logDir "sync.log"
 function Log($msg) {
   $line = "{0} {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $msg
   Add-Content -Path $logFile -Value $line -Encoding UTF8
-  Write-Verbose $line
+  # 用 Write-Host 而不是 Write-Verbose: 这个脚本的 param() 没有 [CmdletBinding()],
+  # 所以菜单传进来的 -Verbose 压根不是有效参数 (被吞进 $args), $VerbosePreference
+  # 还是 SilentlyContinue —— Write-Verbose 一个字都不打, 跑全量回填时控制台全黑,
+  # 看着就像卡死了. 计划任务是隐藏窗口跑的, 多打几行也没有副作用.
+  Write-Host $line
 }
 
 if ((Test-Path $logFile) -and (Get-Item $logFile).Length -gt 1MB) {
@@ -221,6 +225,7 @@ try {
         try {
           $j = Get-Content $rr -Raw -Encoding UTF8 | ConvertFrom-Json
           $script:sgpNew += [int]$j.newGames
+          Log ("      上传一批: 收到 {0} 新增 {1}" -f $j.received, $j.newGames)
           # 解析不了的数量要盯着: SGP 的字段和客户端那套不一样, 如果转换有问题,
           # 表现就是"传上去了但一场都没入库", 有这个数就不用猜了.
           $script:sgpUnparsed += [int]$j.skippedUnparsed
@@ -249,6 +254,7 @@ try {
         $tk = Get-SgpToken
         if (-not $tk) { $script:sgpBad = "token 取不到了"; break }
         $mp = [string]$m.puuid
+        Log ("  {0}: 开始翻" -f $m.name)
         $mSeen = 0
         $mUp = 0
         $startIdx = 0
@@ -287,6 +293,8 @@ try {
           $gs = @()
           if ($pg -and $pg.games) { $gs = @($pg.games) }
           if ($gs.Count -eq 0) { break }
+          # 逐页报进度: 一个人可能要翻十页、传几十批, 几分钟不出声会让人以为卡死了
+          Log ("    第 {0} 条起: 拿到 {1} 场 (累计 {2}, 待传 {3})" -f $startIdx, $gs.Count, ($mSeen + $gs.Count), $mUp)
           foreach ($gw in $gs) {
             $one = $gw
             if ($gw.json) { $one = $gw.json }
