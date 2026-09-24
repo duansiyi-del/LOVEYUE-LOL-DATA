@@ -20,8 +20,10 @@ param(
   [string]$SiteUrl = "https://www.loveyue.xyz",
   # vercel.app 国内直连不通时填本机代理, 例如 "http://127.0.0.1:7890"; 绑了域名后留空
   [string]$Proxy = "",
-  # 往回翻多少场. 客户端本地历史有上限, 翻到头会自动停, 填大了不会出错
-  [int]$MaxScan = 60,
+  # 每个成员往回翻多少场. 客户端本地历史有上限, 翻到头会自动停, 填大了不会出错.
+  # ⚠ 这是【场数】上限不是时间上限: 打得多的时候 60 场可能只覆盖两周.
+  # 想把历史拉全, 用菜单里的「首次全量回填」(等于 -MaxScan 1000).
+  [int]$MaxScan = 200,
   # 忽略「网站已有」, 所有对局重新拉一遍并覆盖 (加了新字段时用)
   [switch]$RefreshAll
 )
@@ -191,7 +193,15 @@ try {
     }
     if ($gotForThis -gt 0) {
       $okMembers++
-      Log ("  {0}: 翻到 {1} 场" -f $mem.name, $gotForThis)
+      # 说明这一轮为什么停: 是客户端没有更早的了, 还是撞了 MaxScan.
+      # 不写清楚的话, 看到的现象就只是"只有最近两周", 会误以为是时间限制.
+      # 写成三条独立赋值而不是 if/elseif 链: PowerShell 的 elseif 不能换行另起一行,
+      # 而这台开发机上没有 pwsh 能先跑一遍语法, 宁可用最笨但一定能解析的写法.
+      # 顺序=后面的覆盖前面的.
+      $why = " (客户端没有更早的了)"
+      if ($gotForThis -le $pageSize) { $why = " (客户端只给了第一页)" }
+      if ($beg -ge $MaxScan) { $why = " (到 -MaxScan $MaxScan 上限, 还能更深)" }
+      Log ("  {0}: 翻到 {1} 场{2}" -f $mem.name, $gotForThis, $why)
     }
   }
 
