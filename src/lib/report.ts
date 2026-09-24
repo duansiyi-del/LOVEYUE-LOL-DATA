@@ -1,7 +1,7 @@
 import "server-only";
 
 import { sql } from "@vercel/postgres";
-import type { MatchFilter } from "@/lib/db";
+import { queueSlots, type MatchFilter } from "@/lib/db";
 import type { TeamGame } from "@/lib/draft";
 
 // 战队体检页的数据层. 思路照搬了之前那份《战队排位分析报告》的克制做法:
@@ -92,6 +92,7 @@ export type MemberRating = {
 
 /** 成员的评分 / MVP / SVP / 每分钟伤害. 只算正式模式且打满五分钟的局. */
 export async function memberRatings(filter: MatchFilter): Promise<MemberRating[]> {
+  const [qa, qb, qc] = queueSlots(filter);
   try {
     const { rows } = await sql<{
       member: string;
@@ -119,8 +120,11 @@ export async function memberRatings(filter: MatchFilter): Promise<MemberRating[]
         AND m.game_creation_ms >= ${filter.sinceMs}
         AND (${filter.untilMs}::bigint IS NULL OR m.game_creation_ms < ${filter.untilMs}::bigint)
         AND m.roster_count >= ${filter.min}
-        AND m.queue_name <> ''
         AND m.duration_min >= 5
+        AND (
+          (${qa}::text IS NULL AND ${qb}::text IS NULL AND ${qc}::text IS NULL)
+          OR m.queue_name = ${qa}::text OR m.queue_name = ${qb}::text OR m.queue_name = ${qc}::text
+        )
       GROUP BY mp.member
       ORDER BY COUNT(*) DESC
     `;
@@ -152,6 +156,7 @@ export type MemberPosition = {
 
 /** 每个人在各个位置的场次和胜率 —— 主位置未必是打得最好的位置. */
 export async function memberPositions(filter: MatchFilter): Promise<MemberPosition[]> {
+  const [qa, qb, qc] = queueSlots(filter);
   try {
     const { rows } = await sql<{ member: string; position: string; games: string; wins: string }>`
       SELECT mp.member, mp.position,
@@ -199,6 +204,7 @@ export async function objectiveSplits(filter: MatchFilter): Promise<ObjectiveSpl
     { key: "firstBaron", label: "拿到首个大龙" },
     { key: "firstTower", label: "拿到第一座塔" },
   ];
+  const [qa, qb, qc] = queueSlots(filter);
   try {
     const { rows } = await sql<{ team_stats: string | null; our_team_id: number; win: boolean }>`
       WITH our_team AS (
@@ -208,7 +214,10 @@ export async function objectiveSplits(filter: MatchFilter): Promise<ObjectiveSpl
         WHERE mp.member <> ''
           AND m.game_creation_ms >= ${filter.sinceMs}
           AND (${filter.untilMs}::bigint IS NULL OR m.game_creation_ms < ${filter.untilMs}::bigint)
-          AND m.queue_name <> ''
+          AND (
+            (${qa}::text IS NULL AND ${qb}::text IS NULL AND ${qc}::text IS NULL)
+            OR m.queue_name = ${qa}::text OR m.queue_name = ${qb}::text OR m.queue_name = ${qc}::text
+          )
         GROUP BY mp.game_id, mp.team_id
         HAVING COUNT(*) >= ${filter.min}
       )
@@ -266,6 +275,7 @@ type TeamStatsLite = {
  * 关系太弱, 拿它做归因要打折扣.
  */
 export async function ratingSanity(filter: MatchFilter): Promise<{ games: number; topOnWinner: number }> {
+  const [qa, qb, qc] = queueSlots(filter);
   try {
     const { rows } = await sql<{ games: string; hit: string }>`
       WITH ranked AS (
@@ -276,7 +286,10 @@ export async function ratingSanity(filter: MatchFilter): Promise<{ games: number
         WHERE mp.score IS NOT NULL
           AND m.game_creation_ms >= ${filter.sinceMs}
           AND (${filter.untilMs}::bigint IS NULL OR m.game_creation_ms < ${filter.untilMs}::bigint)
-          AND m.queue_name <> ''
+          AND (
+            (${qa}::text IS NULL AND ${qb}::text IS NULL AND ${qc}::text IS NULL)
+            OR m.queue_name = ${qa}::text OR m.queue_name = ${qb}::text OR m.queue_name = ${qc}::text
+          )
           AND m.duration_min >= 5
       )
       SELECT COUNT(*)::text AS games,

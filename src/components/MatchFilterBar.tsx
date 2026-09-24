@@ -5,7 +5,9 @@ import { useState } from "react";
 import {
   applyFilterParams,
   DEFAULT_MIN_TEAM_MEMBERS,
+  DEFAULT_QUEUE,
   DEFAULT_SINCE_DATE,
+  QUEUE_OPTIONS,
   SEASON_PRESETS,
   type FilterInput,
 } from "@/lib/filters";
@@ -14,17 +16,19 @@ import {
 // 不改库里的任何东西, 拉取端也不受影响 (拉取端尽量全存).
 export default function MatchFilterBar({
   min,
+  queue,
   sinceDate,
   untilDate,
 }: FilterInput) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
-  const [draft, setDraft] = useState<FilterInput>({ min, sinceDate, untilDate });
+  const [draft, setDraft] = useState<FilterInput>({ min, queue, sinceDate, untilDate });
 
   function push(next: FilterInput) {
     const params = new URLSearchParams(sp.toString());
     params.delete("min");
+    params.delete("queue");
     params.delete("since");
     params.delete("until");
     params.delete("page"); // 换筛选回到第 1 页
@@ -33,8 +37,13 @@ export default function MatchFilterBar({
     router.push(qs ? `${pathname}?${qs}` : pathname);
   }
 
-  const dirty = draft.min !== min || draft.sinceDate !== sinceDate || draft.untilDate !== untilDate;
-  const isDefault = min === DEFAULT_MIN_TEAM_MEMBERS && !sinceDate && !untilDate;
+  const dirty =
+    draft.min !== min ||
+    draft.queue !== queue ||
+    draft.sinceDate !== sinceDate ||
+    draft.untilDate !== untilDate;
+  const isDefault =
+    min === DEFAULT_MIN_TEAM_MEMBERS && queue === DEFAULT_QUEUE && !sinceDate && !untilDate;
   const activePreset = SEASON_PRESETS.find((p) => p.since === sinceDate && p.until === untilDate)?.label;
 
   const inputCls =
@@ -42,6 +51,31 @@ export default function MatchFilterBar({
 
   return (
     <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] px-4 py-3 text-sm">
+      {/* 模式放第一排: 单双排/灵活/匹配的强度和匹配机制都不一样, 混在一起统计
+          会互相污染, 所以它比赛段和日期更应该先选 */}
+      <div className="mb-3 flex flex-wrap items-center justify-center gap-2">
+        <span className="text-xs text-[var(--muted)]">模式</span>
+        {QUEUE_OPTIONS.map((q) => (
+          <button
+            key={q.key}
+            type="button"
+            title={q.hint}
+            onClick={() => {
+              const next = { ...draft, queue: q.key };
+              setDraft(next);
+              push(next);
+            }}
+            className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+              queue === q.key
+                ? "border-[var(--gold)] bg-[var(--gold)]/10 text-[var(--gold)]"
+                : "border-[var(--border)] text-[var(--muted)] hover:border-[var(--gold)]/50 hover:text-[var(--foreground)]"
+            }`}
+          >
+            {q.label}
+          </button>
+        ))}
+      </div>
+
       <div className="mb-3 flex flex-wrap items-center justify-center gap-2">
         <span className="text-xs text-[var(--muted)]">赛段</span>
         {SEASON_PRESETS.map((p) => (
@@ -49,7 +83,7 @@ export default function MatchFilterBar({
             key={p.label}
             type="button"
             onClick={() => {
-              const next = { min: draft.min, sinceDate: p.since, untilDate: p.until };
+              const next = { ...draft, sinceDate: p.since, untilDate: p.until };
               setDraft(next);
               push(next);
             }}
@@ -118,7 +152,12 @@ export default function MatchFilterBar({
           <button
             type="button"
             onClick={() => {
-              const next = { min: DEFAULT_MIN_TEAM_MEMBERS, sinceDate: DEFAULT_SINCE_DATE, untilDate: "" };
+              const next = {
+                min: DEFAULT_MIN_TEAM_MEMBERS,
+                queue: DEFAULT_QUEUE,
+                sinceDate: DEFAULT_SINCE_DATE,
+                untilDate: "",
+              };
               setDraft(next);
               push(next);
             }}

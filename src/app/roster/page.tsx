@@ -9,12 +9,18 @@ export const metadata = {
 };
 
 // 名单页不带筛选条: 这里要回答的是「这个人平时打什么位置、常用什么英雄」,
-// 口径固定为【全部已同步对局】—— 同一方只要有一个人 (min 1)、不限时间.
-// 想按赛段看分路和英雄池, 去对位分析页.
-const ALL_TIME = { min: 1, sinceMs: 0, untilMs: null };
+// 口径固定为【排位的全部对局】—— 同一方只要有一个人 (min 1)、不限时间.
+// 只看排位是因为大乱斗没有分路、自定义和人机也不反映真实水平.
+// 想按赛段或换模式看, 去对位分析页和数据榜单.
+const RANKED_ALL_TIME = {
+  min: 1,
+  sinceMs: 0,
+  untilMs: null,
+  queues: ["单双排", "灵活组排"],
+};
 
 export default async function RosterPage() {
-  const profiles = isDbConfigured() ? await getMemberProfiles(ALL_TIME) : new Map<string, MemberProfile>();
+  const profiles = isDbConfigured() ? await getMemberProfiles(RANKED_ALL_TIME) : new Map<string, MemberProfile>();
   const anyMultiPhoto = roster.some((p) => p.photos.length > 1);
 
   return (
@@ -25,7 +31,7 @@ export default async function RosterPage() {
         </p>
         <h1 className="font-display mt-3 text-4xl font-extrabold sm:text-5xl">{TEAM_NAME}</h1>
         <p className="mt-3 text-xs text-[var(--muted)]">
-          分路、英雄池、胜率都按已同步的全部对局自动统计 · 分路只计召唤师峡谷
+          分路、英雄池、胜率按已同步的全部排位对局自动统计（不含大乱斗和自定义）
           {anyMultiPhoto ? " · 多张照片的卡片可以左右切换" : ""}
         </p>
       </div>

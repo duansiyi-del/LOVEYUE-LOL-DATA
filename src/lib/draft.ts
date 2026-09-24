@@ -1,7 +1,7 @@
 import "server-only";
 
 import { sql } from "@vercel/postgres";
-import type { MatchFilter } from "@/lib/db";
+import { queueSlots, type MatchFilter } from "@/lib/db";
 import type { ChampionProfile } from "@/lib/draftRules";
 
 export type { ChampionProfile };
@@ -19,6 +19,7 @@ export type { ChampionProfile };
 // 做隐藏, 交给展示层决定.
 
 export async function championProfiles(filter: MatchFilter): Promise<ChampionProfile[]> {
+  const [qa, qb, qc] = queueSlots(filter);
   try {
     const { rows } = await sql<{
       champion: string;
@@ -48,10 +49,12 @@ export async function championProfiles(filter: MatchFilter): Promise<ChampionPro
         WHERE mp.champion <> ''
           AND m.game_creation_ms >= ${filter.sinceMs}
           AND (${filter.untilMs}::bigint IS NULL OR m.game_creation_ms < ${filter.untilMs}::bigint)
-          -- 只算认得出的正式模式且打满五分钟的局: 自定义 / 人机 / 秒退重开的
-          -- 数据会把英雄档案带偏 (两分钟的局输出接近 0)
-          AND m.queue_name <> ''
+          -- 打满五分钟才算: 秒退重开的数据会把英雄档案带偏 (输出接近 0)
           AND m.duration_min >= 5
+          AND (
+            (${qa}::text IS NULL AND ${qb}::text IS NULL AND ${qc}::text IS NULL)
+            OR m.queue_name = ${qa}::text OR m.queue_name = ${qb}::text OR m.queue_name = ${qc}::text
+          )
       )
       SELECT champion, champion_id,
              COUNT(*)::text AS games,
@@ -94,6 +97,7 @@ export type ChampionPair = {
 
 /** 我方同时出场的英雄两人组, 按场次降序. */
 export async function championPairs(filter: MatchFilter, limit = 40): Promise<ChampionPair[]> {
+  const [qa, qb, qc] = queueSlots(filter);
   try {
     const { rows } = await sql<{ a: string; b: string; games: string; wins: string }>`
       WITH our_team AS (
@@ -137,6 +141,7 @@ export type ChampionRecord = {
 
 /** 我方单个英雄的战绩, 用来算「组合比各自单独表现好多少」的基线. */
 export async function ourChampionRecords(filter: MatchFilter): Promise<ChampionRecord[]> {
+  const [qa, qb, qc] = queueSlots(filter);
   try {
     const { rows } = await sql<{ champion: string; champion_id: number | null; games: string; wins: string }>`
       WITH our_team AS (
@@ -172,6 +177,7 @@ export async function ourChampionRecords(filter: MatchFilter): Promise<ChampionR
 
 /** 对面拿过的英雄, wins 是【对面】赢的场次 -- 越高说明我们越吃这个英雄的亏. */
 export async function enemyChampions(filter: MatchFilter): Promise<ChampionRecord[]> {
+  const [qa, qb, qc] = queueSlots(filter);
   try {
     const { rows } = await sql<{ champion: string; champion_id: number | null; games: string; wins: string }>`
       WITH our_team AS (
@@ -230,6 +236,7 @@ export type MemberMatchup = {
 const RIFT = ["单双排", "灵活组排", "匹配"];
 
 export async function memberMatchups(filter: MatchFilter): Promise<MemberMatchup[]> {
+  const [qa, qb, qc] = queueSlots(filter);
   try {
     // 取到 (成员, 自己英雄, 分路, 对位英雄) 这一层, 再在 JS 里合并到展示需要的
     // (成员, 对位英雄) —— 保留自己英雄和分路是为了能对上 OP.GG 的大盘数据.
@@ -252,7 +259,10 @@ export async function memberMatchups(filter: MatchFilter): Promise<MemberMatchup
         WHERE mp.member <> ''
           AND m.game_creation_ms >= ${filter.sinceMs}
           AND (${filter.untilMs}::bigint IS NULL OR m.game_creation_ms < ${filter.untilMs}::bigint)
-          AND m.queue_name IN (${RIFT[0]}, ${RIFT[1]}, ${RIFT[2]})
+          AND (
+            (${qa}::text IS NULL AND ${qb}::text IS NULL AND ${qc}::text IS NULL)
+            OR m.queue_name = ${qa}::text OR m.queue_name = ${qb}::text OR m.queue_name = ${qc}::text
+          )
         GROUP BY mp.game_id, mp.team_id
         HAVING COUNT(*) >= ${filter.min}
       ),
@@ -343,6 +353,7 @@ export type BanStat = { championId: number; count: number };
 export async function banStats(
   filter: MatchFilter
 ): Promise<{ againstUs: BanStat[]; byUs: BanStat[]; matches: number }> {
+  const [qa, qb, qc] = queueSlots(filter);
   try {
     const { rows } = await sql<{ team_stats: string | null; our_team_id: number }>`
       WITH our_team AS (
@@ -493,6 +504,7 @@ export type TeamGame = {
  * 几百场也就几千行.
  */
 export async function teamGames(filter: MatchFilter): Promise<TeamGame[]> {
+  const [qa, qb, qc] = queueSlots(filter);
   try {
     const { rows } = await sql<{
       game_id: string;
@@ -515,7 +527,10 @@ export async function teamGames(filter: MatchFilter): Promise<TeamGame[]> {
         WHERE mp.member <> ''
           AND m.game_creation_ms >= ${filter.sinceMs}
           AND (${filter.untilMs}::bigint IS NULL OR m.game_creation_ms < ${filter.untilMs}::bigint)
-          AND m.queue_name IN (${RIFT[0]}, ${RIFT[1]}, ${RIFT[2]})
+          AND (
+            (${qa}::text IS NULL AND ${qb}::text IS NULL AND ${qc}::text IS NULL)
+            OR m.queue_name = ${qa}::text OR m.queue_name = ${qb}::text OR m.queue_name = ${qc}::text
+          )
         GROUP BY mp.game_id, mp.team_id
         HAVING COUNT(*) >= ${filter.min}
       )

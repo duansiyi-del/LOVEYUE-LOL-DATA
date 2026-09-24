@@ -183,7 +183,12 @@ export default async function LeaderboardPage({
 
       <div className="mb-6">
         <Suspense fallback={null}>
-          <MatchFilterBar min={filters.min} sinceDate={filters.sinceDate} untilDate={filters.untilDate} />
+          <MatchFilterBar
+            min={filters.min}
+            queue={filters.queue}
+            sinceDate={filters.sinceDate}
+            untilDate={filters.untilDate}
+          />
         </Suspense>
       </div>
 

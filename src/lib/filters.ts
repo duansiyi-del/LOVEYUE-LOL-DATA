@@ -7,6 +7,31 @@
 //   until  只看这天 (含当天) 以前开局的对局, 默认不限
 
 export const DEFAULT_MIN_TEAM_MEMBERS = 3;
+
+// 模式必须分开看 —— 单双排、灵活、匹配的对局强度和匹配机制都不一样, 混在一起
+// 统计会互相污染. 大乱斗更是另一回事 (没有分路、没有补刀概念).
+// key 对应 matches.queue_name; 前缀 g: 的是分组, 展开成多个 queue_name.
+export const QUEUE_GROUPS: Record<string, string[]> = {
+  "g:排位": ["单双排", "灵活组排"],
+  "g:大乱斗": ["大乱斗", "海克斯大乱斗"],
+};
+
+export const QUEUE_OPTIONS: { key: string; label: string; hint?: string }[] = [
+  { key: "g:排位", label: "排位", hint: "单双排 + 灵活组排" },
+  { key: "单双排", label: "单双排" },
+  { key: "灵活组排", label: "灵活组排" },
+  { key: "匹配", label: "匹配" },
+  { key: "g:大乱斗", label: "大乱斗", hint: "含海克斯大乱斗" },
+  { key: "", label: "全部", hint: "包括自定义和人机等所有模式" },
+];
+
+export const DEFAULT_QUEUE = "g:排位";
+
+/** 展开成具体的 queue_name 列表; 返回空数组表示不限模式. */
+export function queueNames(key: string): string[] {
+  if (!key) return [];
+  return QUEUE_GROUPS[key] ?? [key];
+}
 // 默认不设时间下限 —— 拉取端本来就尽量全存, 展示端再卡一个日期只会让人以为
 // 数据没同步全. 想看某个赛段用上面的快捷按钮或自己填起止日.
 export const DEFAULT_SINCE_DATE = "";
@@ -26,6 +51,10 @@ export const SEASON_PRESETS: { label: string; since: string; until: string }[] =
 
 export type DisplayFilters = {
   min: number;
+  /** 模式筛选. 空串 = 不限; g: 开头是分组 */
+  queue: string;
+  /** 展开后的 queue_name 列表, 空数组 = 不限 */
+  queues: string[];
   sinceDate: string; // YYYY-MM-DD 或 "" (不限)
   untilDate: string; // YYYY-MM-DD 或 "" (不限)
   sinceMs: number; // UTC ms, 北京时间当天 00:00
@@ -42,13 +71,21 @@ function validDate(d: string | undefined): d is string {
   return Boolean(d && DATE_RE.test(d) && Number.isFinite(dateToMs(d)));
 }
 
-export function parseFilters(sp: { min?: string; since?: string; until?: string }): DisplayFilters {
+export function parseFilters(sp: {
+  min?: string;
+  since?: string;
+  until?: string;
+  queue?: string;
+}): DisplayFilters {
   const minRaw = Number(sp.min);
   const min = Number.isInteger(minRaw) && minRaw >= 1 && minRaw <= 5 ? minRaw : DEFAULT_MIN_TEAM_MEMBERS;
+  const queue = QUEUE_OPTIONS.some((q) => q.key === sp.queue) ? (sp.queue as string) : DEFAULT_QUEUE;
   const sinceDate = validDate(sp.since) ? sp.since : DEFAULT_SINCE_DATE;
   const untilDate = validDate(sp.until) ? sp.until : "";
   return {
     min,
+    queue,
+    queues: queueNames(queue),
     sinceDate,
     untilDate,
     sinceMs: sinceDate ? dateToMs(sinceDate) : 0,
@@ -56,11 +93,12 @@ export function parseFilters(sp: { min?: string; since?: string; until?: string 
   };
 }
 
-export type FilterInput = { min: number; sinceDate: string; untilDate: string };
+export type FilterInput = { min: number; queue: string; sinceDate: string; untilDate: string };
 
 /** 把筛选参数写进 URLSearchParams, 默认值不写, 保持链接干净. */
 export function applyFilterParams(params: URLSearchParams, f: FilterInput) {
   if (f.min !== DEFAULT_MIN_TEAM_MEMBERS) params.set("min", String(f.min));
+  if (f.queue !== DEFAULT_QUEUE) params.set("queue", f.queue);
   if (f.sinceDate) params.set("since", f.sinceDate);
   if (f.untilDate) params.set("until", f.untilDate);
 }

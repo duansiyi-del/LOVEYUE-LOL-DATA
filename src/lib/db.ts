@@ -360,20 +360,35 @@ function groupMatches(rows: MatchRow[]): StoredMatch[] {
 // 展示层筛选: 同一方车队人数 >= min, 开局时间 >= sinceMs. 拉取端存得更全
 // (见 matchesRoster.ts), 这里按前端传来的参数过滤 (见 filters.ts).
 // untilMs 为不含上界 (截止日次日 00:00), null 表示不限.
-export type MatchFilter = { min: number; sinceMs: number; untilMs: number | null };
+// queues 是展开后的 queue_name 列表, 空数组 = 不限模式.
+//
+// ⚠ 这个驱动的 sql 模板只保证基本类型可用, 传数组不可靠. 所以统一用三个定长
+// 参数装前三个模式, 不足的补 null —— 目前最多的分组 (排位) 也只有两个,
+// 三个位置够用且留了余量. 全部为 null 就表示不限.
+export type MatchFilter = {
+  min: number;
+  sinceMs: number;
+  untilMs: number | null;
+  queues: string[];
+};
+
+/** 把 queues 摊成三个定长参数, 供 SQL 里的 queueClause 使用. */
+export function queueSlots(f: MatchFilter): [string | null, string | null, string | null] {
+  const q = f.queues ?? [];
+  return [q[0] ?? null, q[1] ?? null, q[2] ?? null];
+}
 
 export async function listMatches(
   filter: MatchFilter,
   limit = 20,
-  offset = 0,
-  queueName?: string | null
+  offset = 0
 ): Promise<StoredMatch[]> {
+  const [qa, qb, qc] = queueSlots(filter);
   // One round trip: join match_players onto one page of matches (most
   // recent first, LIMIT/OFFSET below), optionally narrowed to one queue.
   // (Avoids passing an array param -- @vercel/postgres's `sql` tag only
   // accepts primitive values, so the column list is spelled out below
   // rather than shared via a helper.)
-  const queue = queueName ?? null;
   const { rows } = await sql<MatchRow>`
     SELECT m.game_id, m.game_creation_ms, m.duration_min, m.queue_name, m.roster_count, m.team_stats,
            mp.member, mp.player_name, mp.team_id, mp.position, mp.champion, mp.champion_id,
@@ -386,8 +401,11 @@ export async function listMatches(
     FROM (
       SELECT game_id, game_creation_ms, duration_min, queue_name, roster_count, team_stats
       FROM matches
-      WHERE (${queue}::text IS NULL OR queue_name = ${queue}::text)
-        AND roster_count >= ${filter.min}
+      WHERE roster_count >= ${filter.min}
+        AND (
+          (${qa}::text IS NULL AND ${qb}::text IS NULL AND ${qc}::text IS NULL)
+          OR queue_name = ${qa}::text OR queue_name = ${qb}::text OR queue_name = ${qc}::text
+        )
         AND game_creation_ms >= ${filter.sinceMs}
         AND (${filter.untilMs}::bigint IS NULL OR game_creation_ms < ${filter.untilMs}::bigint)
       ORDER BY game_creation_ms DESC
@@ -401,31 +419,20 @@ export async function listMatches(
 
 // Total match count for the same optional queue filter, so the page knows
 // how many pages to render without pulling every row down first.
-export async function countMatches(filter: MatchFilter, queueName?: string | null): Promise<number> {
-  const queue = queueName ?? null;
+export async function countMatches(filter: MatchFilter): Promise<number> {
+  const [qa, qb, qc] = queueSlots(filter);
   const { rows } = await sql<{ count: string }>`
     SELECT COUNT(*)::text AS count
     FROM matches
-    WHERE (${queue}::text IS NULL OR queue_name = ${queue}::text)
-      AND roster_count >= ${filter.min}
+    WHERE roster_count >= ${filter.min}
+      AND (
+        (${qa}::text IS NULL AND ${qb}::text IS NULL AND ${qc}::text IS NULL)
+        OR queue_name = ${qa}::text OR queue_name = ${qb}::text OR queue_name = ${qc}::text
+      )
       AND game_creation_ms >= ${filter.sinceMs}
         AND (${filter.untilMs}::bigint IS NULL OR game_creation_ms < ${filter.untilMs}::bigint)
   `;
   return Number(rows[0]?.count ?? 0);
-}
-
-// Distinct queue names that actually have synced matches, for the filter
-// pills -- computed from the whole table, not just the current page, so a
-// mode doesn't disappear from the pills just because it has no games on
-// page 1.
-export async function listMatchQueues(filter: MatchFilter): Promise<string[]> {
-  const { rows } = await sql<{ queue_name: string }>`
-    SELECT DISTINCT queue_name FROM matches
-    WHERE roster_count >= ${filter.min} AND game_creation_ms >= ${filter.sinceMs}
-      AND (${filter.untilMs}::bigint IS NULL OR game_creation_ms < ${filter.untilMs}::bigint)
-        AND (${filter.untilMs}::bigint IS NULL OR game_creation_ms < ${filter.untilMs}::bigint)
-  `;
-  return rows.map((r) => r.queue_name);
 }
 
 // ---- 名单页: 从战绩自动统计每个成员的分路 / 英雄池 -----------------------
@@ -454,6 +461,7 @@ const RIFT_QUEUES = ["单双排", "灵活组排", "匹配"];
 
 export async function getMemberProfiles(filter: MatchFilter): Promise<Map<string, MemberProfile>> {
   const out = new Map<string, MemberProfile>();
+  const [qa, qb, qc] = queueSlots(filter);
   try {
     const [totals, positions, champions] = await Promise.all([
       sql<{ member: string; games: string; wins: string }>`
@@ -472,7 +480,10 @@ export async function getMemberProfiles(filter: MatchFilter): Promise<Map<string
         WHERE mp.member <> ''
           AND m.roster_count >= ${filter.min} AND m.game_creation_ms >= ${filter.sinceMs}
           AND (${filter.untilMs}::bigint IS NULL OR m.game_creation_ms < ${filter.untilMs}::bigint)
-          AND m.queue_name IN (${RIFT_QUEUES[0]}, ${RIFT_QUEUES[1]}, ${RIFT_QUEUES[2]})
+          AND (
+            (${qa}::text IS NULL AND ${qb}::text IS NULL AND ${qc}::text IS NULL)
+            OR m.queue_name = ${qa}::text OR m.queue_name = ${qb}::text OR m.queue_name = ${qc}::text
+          )
           AND mp.position IN ('TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY')
         GROUP BY mp.member, mp.position
         ORDER BY mp.member, COUNT(*) DESC

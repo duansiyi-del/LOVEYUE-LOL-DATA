@@ -1,7 +1,7 @@
 import "server-only";
 
 import { sql } from "@vercel/postgres";
-import type { MatchFilter } from "@/lib/db";
+import { queueSlots, type MatchFilter } from "@/lib/db";
 
 // 分位置数据榜单.
 //
@@ -69,6 +69,7 @@ export async function leaderboard(
   position: string,
   by: Dimension = "member"
 ): Promise<LeaderRow[]> {
+  const [qa, qb, qc] = queueSlots(filter);
   try {
     const pos = position || null;
     const { rows } = await sql<Record<string, string | null>>`
@@ -85,7 +86,10 @@ export async function leaderboard(
         WHERE m.game_creation_ms >= ${filter.sinceMs}
           AND (${filter.untilMs}::bigint IS NULL OR m.game_creation_ms < ${filter.untilMs}::bigint)
           AND m.roster_count >= ${filter.min}
-          AND m.queue_name IN (${RIFT[0]}, ${RIFT[1]}, ${RIFT[2]})
+          AND (
+            (${qa}::text IS NULL AND ${qb}::text IS NULL AND ${qc}::text IS NULL)
+            OR m.queue_name = ${qa}::text OR m.queue_name = ${qb}::text OR m.queue_name = ${qc}::text
+          )
           AND m.duration_min >= 5
       ),
       base AS (

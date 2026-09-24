@@ -97,7 +97,12 @@ export default async function ReportPage({
 
       <div className="mb-8">
         <Suspense fallback={null}>
-          <MatchFilterBar min={filters.min} sinceDate={filters.sinceDate} untilDate={filters.untilDate} />
+          <MatchFilterBar
+            min={filters.min}
+            queue={filters.queue}
+            sinceDate={filters.sinceDate}
+            untilDate={filters.untilDate}
+          />
         </Suspense>
       </div>
 

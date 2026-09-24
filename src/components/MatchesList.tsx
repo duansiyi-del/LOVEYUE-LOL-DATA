@@ -35,9 +35,9 @@ function formatTime(ms: number) {
 // Builds the /matches?queue=...&page=... href for a filter pill or a
 // pagination link. "全部" and page 1 are the defaults, so they're left off
 // the query string entirely rather than written out as queue=全部&page=1.
-function matchesHref(queue: string, page: number, filters: FilterInput) {
+// 模式已经收进统一筛选条 (applyFilterParams 会带上), 这里只管翻页
+function matchesHref(page: number, filters: FilterInput) {
   const params = new URLSearchParams();
-  if (queue !== "全部") params.set("queue", queue);
   if (page > 1) params.set("page", String(page));
   applyFilterParams(params, filters);
   const qs = params.toString();
@@ -170,8 +170,6 @@ export default function MatchesList({
   matches,
   version,
   championMap,
-  currentQueue,
-  availableQueues,
   page,
   totalPages,
   filters,
@@ -181,34 +179,14 @@ export default function MatchesList({
   filters: FilterInput;
   version: string;
   championMap: Record<number, string>;
-  // "全部" or one of availableQueues -- which filter pill is active.
-  currentQueue: string;
-  // Queues that actually have synced matches, in display order.
-  availableQueues: string[];
   page: number;
   totalPages: number;
 }) {
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-center justify-center gap-2">
-        {["全部", ...availableQueues].map((q) => (
-          <Link
-            key={q}
-            href={matchesHref(q, 1, filters)}
-            className={`rounded-full border px-4 py-1.5 text-xs font-semibold transition ${
-              currentQueue === q
-                ? "border-[var(--gold)] bg-[var(--gold)]/10 text-[var(--gold)]"
-                : "border-[var(--border)] text-[var(--muted)] hover:border-[var(--gold)]/50 hover:text-[var(--foreground)]"
-            }`}
-          >
-            {q}
-          </Link>
-        ))}
-      </div>
-
       {matches.length === 0 ? (
         <p className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-6 text-center text-sm text-[var(--muted)]">
-          当前筛选下没有对局，试试调低门槛人数或把起始日提前。
+          当前筛选下没有对局，试试换个模式、调低门槛人数或把起始日提前。
         </p>
       ) : (
         <div className="space-y-4">
@@ -222,7 +200,7 @@ export default function MatchesList({
         <div className="mt-8 flex items-center justify-center gap-4">
           {page > 1 ? (
             <Link
-              href={matchesHref(currentQueue, page - 1, filters)}
+              href={matchesHref(page - 1, filters)}
               className="rounded-full border border-[var(--border)] px-4 py-1.5 text-xs font-semibold text-[var(--muted)] transition hover:border-[var(--gold)]/60 hover:text-[var(--gold)]"
             >
               ‹ 上一页
@@ -239,7 +217,7 @@ export default function MatchesList({
 
           {page < totalPages ? (
             <Link
-              href={matchesHref(currentQueue, page + 1, filters)}
+              href={matchesHref(page + 1, filters)}
               className="rounded-full border border-[var(--border)] px-4 py-1.5 text-xs font-semibold text-[var(--muted)] transition hover:border-[var(--gold)]/60 hover:text-[var(--gold)]"
             >
               下一页 ›
