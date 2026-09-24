@@ -16,6 +16,7 @@ import {
 } from "@/lib/leaderboard";
 import { displayName } from "@/lib/roster";
 import MatchFilterBar from "@/components/MatchFilterBar";
+import RadarChart, { type RadarAxis } from "@/components/RadarChart";
 
 export const dynamic = "force-dynamic";
 
@@ -229,6 +230,56 @@ export default async function LeaderboardPage({
         </p>
       ) : (
         <>
+          {(() => {
+            // 六维能力图, 一人一张小图, 坐标轴和量程完全一致 —— 对比的是形状.
+            // 每根轴按这批人里的最大值归一化, 所以外圈 = 本组第一, 是相对不是绝对.
+            const shown = rows.filter((r) => r.games >= MIN_GAMES).slice(0, 8);
+            if (shown.length < 2) return null;
+            const dims: { label: string; pick: (r: LeaderRow) => number; fmt: MetricDef["format"] }[] = [
+              { label: "输出", pick: (r) => r.damagePerMin, fmt: "int" },
+              { label: "承伤", pick: (r) => r.takenPerMin, fmt: "int" },
+              { label: "发育", pick: (r) => r.goldPerMin, fmt: "int" },
+              { label: "视野", pick: (r) => r.visionPerMin, fmt: "two" },
+              { label: "控制", pick: (r) => r.ccPerGame, fmt: "one" },
+              { label: "参团", pick: (r) => r.killParticipation, fmt: "pct" },
+            ];
+            const maxes = dims.map((d) => Math.max(...shown.map(d.pick), 0));
+            return (
+              <section className="mb-8">
+                <h2 className="font-display mb-1 text-sm font-semibold uppercase tracking-wider text-[var(--gold)]">
+                  能力形状
+                </h2>
+                <p className="mb-4 text-xs text-[var(--muted)]">
+                  六根轴分别按这批人里的最高值归一化，所以顶到外圈代表这一项在本组第一，
+                  <span className="text-[var(--foreground)]">是相对不是满分</span>。
+                  看的是形状：外扩的是输出型，底部鼓的是扛伤型。
+                </p>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {shown.map((r) => {
+                    const axes: RadarAxis[] = dims.map((d, i) => ({
+                      label: d.label,
+                      value: d.pick(r),
+                      max: maxes[i],
+                      display: formatMetric(d.pick(r), d.fmt),
+                    }));
+                    return (
+                      <div
+                        key={r.key}
+                        className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-2"
+                      >
+                        <RadarChart axes={axes} />
+                        <p className="mt-1 truncate text-center text-xs font-semibold">
+                          {by === "member" ? displayName(r.key) : r.key}
+                        </p>
+                        <p className="text-center text-[11px] text-[var(--muted)]">{r.games} 场</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })()}
+
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {metrics.map((m) => (
               <MetricBoard

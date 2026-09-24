@@ -14,6 +14,7 @@ import {
   wilson,
 } from "@/lib/report";
 import MatchFilterBar from "@/components/MatchFilterBar";
+import IntervalChart, { type IntervalRow } from "@/components/IntervalChart";
 
 export const dynamic = "force-dynamic";
 
@@ -130,33 +131,26 @@ export default async function ReportPage({
               按车队规模
             </h2>
             <p className="mb-3 text-xs text-[var(--muted)]">
-              同时几个人在场。人越多未必胜率越高，排位的匹配机制对多人组排本来就更严。
+              同时几个人在场。横线是 95% 置信区间，圆点是胜率。
+              区间跨过那条虚线，就说明这一组和整体没有可辨别的差异。
             </p>
-            <div className="overflow-x-auto rounded-sm border border-[var(--border)] bg-[var(--bg-panel)]">
-              <table className="w-full text-sm">
-                <thead className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
-                  <tr className="border-b border-[var(--border)]">
-                    <th className="px-3 py-2 text-left">规模</th>
-                    <th className="px-3 py-2 text-right">场次</th>
-                    <th className="px-3 py-2 text-right">胜负</th>
-                    <th className="px-3 py-2 text-right">胜率（95% 区间）</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {squads.map((s) => (
-                    <tr key={s.size} className="border-b border-[var(--border)]/50 last:border-0">
-                      <td className="px-3 py-2">{s.size} 人同队</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{s.games}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {s.wins}-{s.games - s.wins}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <Rate wins={s.wins} games={s.games} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-4">
+              <IntervalChart
+                baseline={wins / total}
+                baselineLabel="全队"
+                rows={squads.map((s2): IntervalRow => {
+                  const ci = wilson(s2.wins, s2.games);
+                  const overall = wins / total;
+                  return {
+                    label: `${s2.size} 人同队`,
+                    note: `${s2.games} 场`,
+                    rate: s2.games ? s2.wins / s2.games : 0,
+                    lo: ci.lo,
+                    hi: ci.hi,
+                    inconclusive: ci.lo <= overall && overall <= ci.hi,
+                  };
+                })}
+              />
             </div>
           </section>
 
@@ -235,61 +229,32 @@ export default async function ReportPage({
               谁在场时全队更能赢
             </h2>
             <p className="mb-3 text-xs text-[var(--muted)]">
-              这一节最容易被过度解读。缺席的那些局往往人更少、对手也不同，样本还常常很小。
-              下面标了「区间重叠」的行，意思是这个差距用现有数据说明不了问题。
+              圆点是这个人在场时全队的胜率，横线是 95% 置信区间。
+              灰色的那几行，区间跨过了全队整体水平，
+              <span className="text-[var(--foreground)]">说明这个差距用现有数据说明不了问题</span>。
+              另外这是相关不是因果：缺席的那些局往往人更少、对手也不同。
             </p>
-            <div className="overflow-x-auto rounded-sm border border-[var(--border)] bg-[var(--bg-panel)]">
-              <table className="w-full text-sm">
-                <thead className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
-                  <tr className="border-b border-[var(--border)]">
-                    <th className="px-3 py-2 text-left">成员</th>
-                    <th className="px-3 py-2 text-right">在场</th>
-                    <th className="px-3 py-2 text-right">缺席</th>
-                    <th className="px-3 py-2 text-right">差值</th>
-                    <th className="px-3 py-2 text-left">能不能当结论</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {presence.map((p) => {
-                    const a = wilson(p.inWins, p.inGames);
-                    const b = wilson(p.outWins, p.outGames);
-                    const same = p.outGames === 0 || overlaps(a, b);
-                    return (
-                      <tr key={p.member} className="border-b border-[var(--border)]/50 last:border-0">
-                        <td className="px-3 py-2">{displayName(p.member)}</td>
-                        <td className="px-3 py-2 text-right">
-                          <Rate wins={p.inWins} games={p.inGames} />
-                          <span className="ml-1 text-[11px] text-[var(--muted)]">{p.inGames} 场</span>
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <Rate wins={p.outWins} games={p.outGames} />
-                          <span className="ml-1 text-[11px] text-[var(--muted)]">{p.outGames} 场</span>
-                        </td>
-                        <td
-                          className={`px-3 py-2 text-right tabular-nums ${
-                            same
-                              ? "text-[var(--muted)]"
-                              : p.delta > 0
-                                ? "text-[var(--status-good)]"
-                                : "text-[var(--status-critical)]"
-                          }`}
-                        >
-                          {p.outGames === 0
-                            ? "—"
-                            : `${p.delta >= 0 ? "+" : ""}${Math.round(p.delta * 100)}pp`}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-[var(--muted)]">
-                          {p.outGames === 0
-                            ? "没有缺席的局，无从比较"
-                            : same
-                              ? "区间重叠，说明不了问题"
-                              : "区间不重叠，值得留意"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-4">
+              <IntervalChart
+                baseline={wins / total}
+                baselineLabel="全队"
+                rows={presence.map((p): IntervalRow => {
+                  const ci = wilson(p.inWins, p.inGames);
+                  const overall = wins / total;
+                  const outRate = p.outGames ? p.outWins / p.outGames : null;
+                  return {
+                    label: displayName(p.member),
+                    note:
+                      outRate === null
+                        ? `${p.inGames} 场 · 无缺席局`
+                        : `在 ${p.inGames} / 缺 ${p.outGames} 场 · 缺席 ${pct(outRate)}`,
+                    rate: p.inGames ? p.inWins / p.inGames : 0,
+                    lo: ci.lo,
+                    hi: ci.hi,
+                    inconclusive: ci.lo <= overall && overall <= ci.hi,
+                  };
+                })}
+              />
             </div>
           </section>
 
