@@ -13,6 +13,7 @@ const links = [
   { href: "/attribution", label: "组队归因" },
   { href: "/leaderboard", label: "数据榜单" },
   { href: "/report", label: "战队体检" },
+  { href: "/download", label: "工具" },
 ];
 
 export default function NavBar() {
