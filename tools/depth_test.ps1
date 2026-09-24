@@ -178,6 +178,32 @@ try {
     }
   }
 
+  # ===== 能不能查【别人】的战绩 =====
+  # 这一段决定同步工具要不要每个人都装一份: 如果本机客户端允许用队友的 puuid 查
+  # 历史 (客户端里点开别人主页就是这么干的), 那一台机器就能拉全队.
+  Say ""
+  Say "===== 查队友的战绩 ====="
+  $rosterUrl = "https://www.loveyue.xyz/api/roster"
+  $rf = Join-Path $env:TEMP "loveyue_roster.json"
+  $rc = & curl.exe -s -m 30 -o $rf -w "%{http_code}" $rosterUrl 2>$null
+  if ($rc -ne "200") {
+    Say "  取不到车队名单 (http $rc), 这段跳过"
+  } else {
+    $mem = @()
+    try { $mem = @((Get-Content $rf -Raw -Encoding UTF8 | ConvertFrom-Json).members) } catch {}
+    $others = @($mem | Where-Object { [string]$_.puuid -and ([string]$_.puuid) -ne $puuid })
+    if ($others.Count -eq 0) { Say "  名单里没有别人" }
+    foreach ($o in $others) {
+      $r = Get-Page ("/lol-match-history/v1/products/lol/" + $o.puuid + "/matches?begIndex=0&endIndex=19")
+      if ($r.count -lt 0) {
+        Say ("  {0,-10} http {1}   查不到" -f $o.name, $r.code)
+      } else {
+        Say ("  {0,-10} 拿到 {1,3} 场   最早 {2}" -f $o.name, $r.count, $r.oldest)
+      }
+    }
+    Say "  (只要上面有人拿到场次, 就说明一台机器能拉全队)"
+  }
+
   # ===== 第三部分: 从客户端日志里挖出它自己是怎么调 SGP 的 =====
   # 直接调 SGP 一直返回 400 (任何路径都 400, 连不存在的路径也是), 说明请求在网关
   # 层就被拒了, 缺了真实客户端才带的东西. 客户端自己调用时会在日志里留下 URL,

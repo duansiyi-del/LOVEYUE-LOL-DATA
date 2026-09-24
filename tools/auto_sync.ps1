@@ -8,9 +8,9 @@
 # 400 而不是 404), 两台机器分别验证过, 请求在路由前就被网关挡掉了. 客户端本地
 # 接口没有这个问题, 也没有 token 十分钟过期的麻烦.
 #
-# 覆盖范围: 只能拿到【这台机器登录的这个账号】打过的对局. 但车队局只要有一个人
-# 在场, 那一局十个人的数据都在. 想覆盖更全, 就在多个成员的机器上各跑一份, 都往
-# 同一个网站推, 重复的对局会自动去重.
+# 覆盖范围: 脚本会从网站取车队名单, 然后【逐个查每个成员的战绩】, 不是只查本机
+# 登录的账号 —— 客户端接口支持传任意 puuid, 所以一台机器就能覆盖全队.
+# 查不到别人时 (接口拒绝) 会自动退回只同步本机账号, 并在日志里写明.
 #
 # 日志: %LOCALAPPDATA%\loveyue-sync\sync.log
 # 手动调试: powershell -ExecutionPolicy Bypass -File .\auto_sync.ps1 -Verbose
@@ -124,75 +124,84 @@ try {
     }
   }
 
-  # ---- 5. 翻战绩列表, 挑出新的 gameId ----
-  # 列表接口每次最多给 20 条, 而且只返回登录者自己那一行, 所以拿到 id 之后还要
-  # 逐局调详情才有十个人的数据.
+  # ---- 5. 取车队名单, 逐个翻战绩, 挑出新的 gameId ----
+  # 客户端历史接口一次最多给 20 条; 部分国服客户端还会忽略翻页参数, 只给第一页.
+  # 拿到 id 之后还要逐局调详情才有十个人的数据.
+  $members = @()
+  $rf2 = Join-Path $tmpDir "roster.json"
+  $code = & curl.exe -s -m 60 -o $rf2 -w "%{http_code}" @proxyArgs "$SiteUrl/api/roster" 2>$null
+  if ($code -eq "200") {
+    try {
+      $rj = Get-Content $rf2 -Raw -Encoding UTF8 | ConvertFrom-Json
+      $members = @($rj.members)
+    } catch {}
+  }
+  if (-not $members -or $members.Count -eq 0) {
+    Log "warn: 取不到车队名单, 退回只同步本机账号"
+    $members = @([pscustomobject]@{ name = "$($me.gameName)"; puuid = [string]$me.puuid })
+  } else {
+    Log "车队名单 $($members.Count) 人"
+  }
+
   $newIds = New-Object System.Collections.ArrayList
   $seen = 0
   $oldestMs = 0
-  $beg = 0
   $pageSize = 20
-  $lastSig = ""
+  $okMembers = 0
 
-  # 客户端历史接口一次最多给 20 条, 要靠 begIndex/endIndex 翻页.
-  # 两个路径都试: current-summoner 的有时翻到第二页就不给了, 带 puuid 的那个
-  # 通常能翻更深. 每页都记日志, 断在哪一页一目了然.
-  $myPuuid = [string]$me.puuid
-  $pathForms = @(
-    "/lol-match-history/v1/products/lol/current-summoner/matches?begIndex={0}&endIndex={1}",
-    "/lol-match-history/v1/products/lol/$myPuuid/matches?begIndex={0}&endIndex={1}"
-  )
-  $formIdx = 0
-
-  while ($beg -lt $MaxScan) {
-    $end = [Math]::Min($beg + $pageSize - 1, $MaxScan - 1)
-    $lf = Join-Path $tmpDir "list.json"
-    $path = [string]::Format($pathForms[$formIdx], $beg, $end)
-    $code = LcuRaw $path $lf
-    if ($code -ne "200") {
-      Log "  翻页停在 begIndex=$beg (http $code)"
-      # 当前路径不行就换另一种写法, 从同一位置继续
-      if ($formIdx -lt ($pathForms.Count - 1)) {
-        $formIdx++
-        Log "  改用第 $($formIdx + 1) 种接口写法重试"
-        continue
+  foreach ($mem in $members) {
+    $mp = [string]$mem.puuid
+    if (-not $mp) { continue }
+    $isSelf = ($mp -eq [string]$me.puuid)
+    $beg = 0
+    $lastSig = ""
+    $gotForThis = 0
+    while ($beg -lt $MaxScan) {
+      $end = [Math]::Min($beg + $pageSize - 1, $MaxScan - 1)
+      $lf = Join-Path $tmpDir "list.json"
+      $code = LcuRaw "/lol-match-history/v1/products/lol/$mp/matches?begIndex=$beg&endIndex=$end" $lf
+      if ($code -ne "200") {
+        if ($beg -eq 0) {
+          Log ("  {0}: 查不到 (http {1})" -f $mem.name, $code)
+          if (-not $isSelf) { Log "    (客户端可能不允许查别人的战绩)" }
+        }
+        break
       }
-      break
-    }
-    try { $list = Get-Content $lf -Raw -Encoding UTF8 | ConvertFrom-Json } catch { Log "  第 $beg 页解析失败"; break }
-    $games = $list.games.games
-    $got = if ($games) { @($games).Count } else { 0 }
-    Log "  begIndex=$beg 拿到 $got 场"
-    if ($got -eq 0) { break }
+      try { $list = Get-Content $lf -Raw -Encoding UTF8 | ConvertFrom-Json } catch { break }
+      $games = $list.games.games
+      $got = if ($games) { @($games).Count } else { 0 }
+      if ($got -eq 0) { break }
 
-    # 部分国服客户端会【忽略 begIndex/endIndex】, 每页都返回同样的第一页 (20 条).
-    # 不检出来就会空转到 MaxScan. 拿本页 id 和上页比, 一样就停.
-    $sig = (@($games) | ForEach-Object { [string]$_.gameId }) -join ","
-    if ($sig -eq $lastSig) {
-      Log "  这一页和上一页完全相同 —— 客户端忽略了翻页参数, 只能拿到第一页"
-      Log "  (这是部分国服客户端的已知行为, 不是脚本的问题; 深翻要走 SGP)"
-      break
+      # 部分国服客户端忽略 begIndex/endIndex, 每页都返回同样的第一页
+      $sig = (@($games) | ForEach-Object { [string]$_.gameId }) -join ","
+      if ($sig -eq $lastSig) { break }
+      $lastSig = $sig
+
+      foreach ($g in $games) {
+        $gid = [string]$g.gameId
+        $seen++
+        $gotForThis++
+        $ms = [double]$g.gameCreation
+        if ($ms -gt 0 -and ($oldestMs -eq 0 -or $ms -lt $oldestMs)) { $oldestMs = $ms }
+        if ($gid -and -not $known.ContainsKey($gid)) { [void]$newIds.Add($gid) }
+      }
+      if ($got -lt ($end - $beg + 1)) { break }
+      $beg = $end + 1
+      Start-Sleep -Milliseconds 200
     }
-    $lastSig = $sig
-    foreach ($g in $games) {
-      $gid = [string]$g.gameId
-      $seen++
-      $ms = [double]$g.gameCreation
-      if ($ms -gt 0 -and ($oldestMs -eq 0 -or $ms -lt $oldestMs)) { $oldestMs = $ms }
-      if ($gid -and -not $known.ContainsKey($gid)) { [void]$newIds.Add($gid) }
+    if ($gotForThis -gt 0) {
+      $okMembers++
+      Log ("  {0}: 翻到 {1} 场" -f $mem.name, $gotForThis)
     }
-    # 不足一页 = 翻到头了
-    if ($got -lt ($end - $beg + 1)) { Log "  已翻到历史尽头"; break }
-    $beg = $end + 1
   }
 
   $newIds = $newIds | Select-Object -Unique
   $oldestTxt = if ($oldestMs -gt 0) {
     ([DateTimeOffset]::FromUnixTimeMilliseconds([long]$oldestMs)).LocalDateTime.ToString("yyyy-MM-dd")
   } else { "?" }
-  Log "客户端历史翻了 $seen 场, 最早到 $oldestTxt"
+  Log "共翻到 $seen 场 (覆盖 $okMembers 人), 最早到 $oldestTxt"
   if (-not $newIds -or $newIds.Count -eq 0) { Log "ok: 没有新对局"; exit 0 }
-  Log "发现 $($newIds.Count) 场待同步"
+  Log "其中 $($newIds.Count) 场待同步"
 
   # ---- 6. 逐局拿详情, 分批发给网站 ----
   $batch = New-Object System.Collections.ArrayList
