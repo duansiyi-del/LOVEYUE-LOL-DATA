@@ -48,7 +48,7 @@ export const roster: Player[] = [
     alias: "越哥",
     positions: [],
     champions: [],
-    photos: ["/roster/p1.jpg", "/roster/p1b.jpg"],
+    photos: ["/roster/p1.jpg", "/roster/p1b.jpg", "/roster/p1c.jpg"],
     number: 1,
   },
   {
@@ -93,7 +93,7 @@ export const roster: Player[] = [
     alias: "猴猴",
     positions: [],
     champions: [],
-    photos: ["/roster/p6.jpg"],
+    photos: ["/roster/p6.jpg", "/roster/p6b.jpg"],
     number: 6,
   },
   {
