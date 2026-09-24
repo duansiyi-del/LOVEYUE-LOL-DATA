@@ -257,13 +257,22 @@ try {
           $pf2 = Join-Path $tmpDir "sgppage.json"
           $c4 = & curl.exe -s -k -m 60 -o $pf2 -w "%{http_code}" -H "Authorization: Bearer $tk" -H "User-Agent: $sgpUa" -H "Accept: application/json" $u 2>$null
           if ($c4 -ne "200") {
+            # 队友 401 先跳过继续, 不要让整轮失败 —— 但这【不一定】是"不能查别人":
+            # 被移植的那个参考实现就是一个 token 循环查全队 8 个 puuid 的, 而且能跑.
+            # 所以先看自己那一轮通不通 (自己排在最前), 再看别人是不是真的都 401,
+            # 两者一对照才能下结论.
             $isSelf = ($mp -eq $selfPuuid)
             if (($c4 -eq "401") -and (-not $isSelf)) {
-              # 预料之中: 这个 token 不属于他. 不算失败, 换下一个人.
               $skipMember = $true
               break
             }
-            $script:sgpBad = "拉取失败 http $c4 (第 $startIdx 条起)"
+            # 401 有两种可能, 必须分清楚:
+            #   1. token 本身不对 (比如被解析坏了 / 过期) —— 那查谁都会 401
+            #   2. 这个 token 读不了别人的战绩
+            # 打印 token 的"形状"就能分辨: 正常的 JWT 是三段、长度一千多.
+            # 只打段数和长度, 不打内容 —— 这两个数字本身不是秘密.
+            $shape = "段数 $(($tk -split '\.').Count) 长度 $($tk.Length)"
+            $script:sgpBad = "拉取失败 http $c4 (第 $startIdx 条起, token $shape)"
             break
           }
           $pg = $null
