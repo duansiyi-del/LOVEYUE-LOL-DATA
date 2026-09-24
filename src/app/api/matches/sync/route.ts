@@ -44,6 +44,12 @@ export async function POST(req: NextRequest) {
   // 「首次全量回填」传大值. 夹在上下界里, 免得一个离谱的值把这个请求跑超时.
   let want: number | undefined;
   let maxScan: number | undefined;
+  let onlyPuuid: string | undefined;
+  // deep = 首次回填. 平时同步翻到"已经入库的那场"就停 (往前的都同步过了, 再翻是白翻);
+  // 但要往回补历史时这个提前停止恰好挡住去路 —— 库里已经有最近两周, 第一页就撞上了,
+  // 于是永远拿不到更早的. deep 关掉这个提前停止, 但【仍然只写没入库的那些】,
+  // 和 refreshAll (整库重写) 不是一回事.
+  let deep = false;
   const clamp = (v: unknown) => {
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? Math.min(Math.round(n), 2000) : undefined;
@@ -54,11 +60,16 @@ export async function POST(req: NextRequest) {
       refreshAll?: boolean;
       want?: number;
       maxScan?: number;
+      puuid?: string;
+      deep?: boolean;
     };
     token = body.token?.trim();
     refreshAll = Boolean(body.refreshAll);
     want = clamp(body.want);
     maxScan = clamp(body.maxScan);
+    // 同步工具按成员逐个调用, 免得八个人一口气拉超过函数时限 (见 sgp.ts onlyPuuid).
+    onlyPuuid = typeof body.puuid === "string" && body.puuid ? body.puuid : undefined;
+    deep = Boolean(body.deep);
   } catch {
     // fall through to the missing-token error below
   }
@@ -77,13 +88,15 @@ export async function POST(req: NextRequest) {
     // games are deliberately left OUT of the stop-set so the existing
     // self-heal-on-next-sync repair path keeps working.
     const [known, incomplete] = await Promise.all([getKnownGameIds(), getIncompleteGameIds()]);
-    const fullyKnown = refreshAll
-      ? undefined
-      : new Set([...known].filter((id) => !incomplete.has(id)));
+    const fullyKnown =
+      refreshAll || deep
+        ? undefined
+        : new Set([...known].filter((id) => !incomplete.has(id)));
     const { games, perPlayer } = await syncAllRosterGames(token, {
       knownGameIds: fullyKnown,
       want,
       maxScan,
+      onlyPuuid,
     });
     const newGames = games.filter((g) => !known.has(g.gameId));
     const repairedGames = games.filter((g) => known.has(g.gameId) && incomplete.has(g.gameId));

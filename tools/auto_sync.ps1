@@ -1,4 +1,4 @@
-﻿# auto_sync.ps1  —  静默自动同步战绩 (走客户端本地接口)
+# auto_sync.ps1  —  静默自动同步战绩 (走客户端本地接口)
 #
 # 在装了国服 LoL 客户端的 Windows 上由计划任务定时运行 (见 tools/README.md).
 # 流程: 读客户端本地接口的战绩列表 -> 挑出网站还没有的对局 -> 逐局调详情拿到
@@ -25,7 +25,10 @@ param(
   # 想把历史拉全, 用菜单里的「首次全量回填」(等于 -MaxScan 1000).
   [int]$MaxScan = 200,
   # 忽略「网站已有」, 所有对局重新拉一遍并覆盖 (加了新字段时用)
-  [switch]$RefreshAll
+  [switch]$RefreshAll,
+  # 首次回填往回补历史: 不在"撞到已入库的对局"时提前停止, 但仍然只写新的.
+  # 平时同步不要带这个 —— 带了每次都要把整个窗口重翻一遍, 慢且没收益.
+  [switch]$Deep
 )
 
 $ErrorActionPreference = "Stop"
@@ -118,41 +121,67 @@ try {
   # 完整战绩, 深度和"能不能查别人"都不是问题.
   # 所以优先走 SGP; 不通 (取不到 token / 网关拒了 / 网站报错) 再退回本地接口那条路.
   #
-  # ⚠ token 的处理: 它是这个账号十分钟有效的凭证. 这里只把它写进一个临时文件用来
-  # POST, 发完立刻删; 从不写进日志, 也不回显. 出错时只打印 http 状态码.
-  $ent = $null
-  $entRaw = & curl.exe -s -k --fail -m 15 -u "riot:$authToken" -H "Accept: application/json" "https://127.0.0.1:$port/entitlements/v1/token" 2>$null
-  if ($entRaw) { try { $ent = ($entRaw -join "") | ConvertFrom-Json } catch {} }
+  # ⚠ 一次只同步一个人. 八个人一口气拉必定超时: 每人翻 1000 场 = 10 轮请求, 八个人
+  # 80 轮, 轮间还有防风控间隔, 光等就两分钟; 函数跑在美国、腾讯网关在国内, 每个请求
+  # 还要一两秒 —— 加起来超过 Vercel 的 300 秒上限, 函数被掐断, 脚本就退回本地接口,
+  # 表现就是"又只有 20 场". 拆成一人一次, 每次十几秒, 碰不到上限.
+  #
+  # ⚠ token 的处理: 它是这个账号十分钟有效的凭证. 每个人同步前重新取一次 (本机调用,
+  # 很便宜), 免得八个人跑下来过期. 只写进一个临时文件用来 POST, 发完立刻删;
+  # 从不写进日志, 也不回显. 出错时只打印 http 状态码.
+  function Get-SgpToken {
+    $raw = & curl.exe -s -k --fail -m 15 -u "riot:$authToken" -H "Accept: application/json" "https://127.0.0.1:$port/entitlements/v1/token" 2>$null
+    if (-not $raw) { return $null }
+    try { return [string](($raw -join "") | ConvertFrom-Json).accessToken } catch { return $null }
+  }
 
-  if ($ent -and $ent.accessToken) {
-    Log "试 SGP 直连 (服务端拉全队, 不受客户端 20 场限制)"
-    $sf = Join-Path $tmpDir "sgp.json"
-    # 深度用同一个 -MaxScan: 菜单里「立即同步」是默认值, 「首次全量回填」传 1000.
-    # SGP 这边是服务端翻页, 和客户端那条路的语义一致 —— 每人最多往回翻这么多场.
-    $sgpBody = @{
-      token      = [string]$ent.accessToken
-      refreshAll = [bool]$RefreshAll
-      want       = $MaxScan
-      maxScan    = $MaxScan
-    } | ConvertTo-Json -Compress
-    [IO.File]::WriteAllText($sf, $sgpBody, (New-Object Text.UTF8Encoding($false)))
-    $sgpBody = $null
-    $srf = Join-Path $tmpDir "sgpresp.json"
-    $code = & curl.exe -s -m 290 -o $srf -w "%{http_code}" @proxyArgs -X POST -H "Content-Type: application/json" --data-binary "@$sf" "$SiteUrl/api/matches/sync" 2>$null
-    Remove-Item $sf -Force -ErrorAction SilentlyContinue
-    if ($code -eq "200") {
-      $sr = $null
-      try { $sr = Get-Content $srf -Raw -Encoding UTF8 | ConvertFrom-Json } catch {}
-      if ($sr) {
-        foreach ($p in $sr.perPlayer) { Log ("  {0}: 翻了 {1} 场, 命中 {2} 场" -f $p.name, $p.scanned, $p.found) }
-        Log ("ok: SGP 扫到 {0} 场, 新增 {1} 场, 库里共 {2} 场" -f $sr.scannedGames, $sr.newGames, $sr.totalGames)
-      } else {
-        Log "ok: SGP 同步完成"
-      }
-      exit 0
+  if (Get-SgpToken) {
+    Log "SGP 直连: 逐个成员同步 (每人最多往回翻 $MaxScan 场)"
+
+    # 名单从网站取, 和下面本地接口那条路用的是同一份
+    $sgpMembers = @()
+    $rf0 = Join-Path $tmpDir "roster0.json"
+    if ((& curl.exe -s -m 60 -o $rf0 -w "%{http_code}" @proxyArgs "$SiteUrl/api/roster" 2>$null) -eq "200") {
+      try { $sgpMembers = @((Get-Content $rf0 -Raw -Encoding UTF8 | ConvertFrom-Json).members) } catch {}
     }
-    if ($code -eq "401") { Log "SGP: token 被拒 (401), 退回客户端本地接口" }
-    else { Log "SGP: 没成功 (http $code), 退回客户端本地接口" }
+
+    if ($sgpMembers.Count -eq 0) {
+      Log "SGP: 取不到车队名单, 退回客户端本地接口"
+    } else {
+      $sgpOkCount = 0
+      $sgpNew = 0
+      $sgpTotal = 0
+      $sgpFail = ""
+      foreach ($m in $sgpMembers) {
+        $tk = Get-SgpToken
+        if (-not $tk) { $sgpFail = "取不到 token"; break }
+        $sf = Join-Path $tmpDir "sgp.json"
+        $body = @{ token = $tk; puuid = [string]$m.puuid; refreshAll = [bool]$RefreshAll; deep = [bool]$Deep; want = $MaxScan; maxScan = $MaxScan } | ConvertTo-Json -Compress
+        [IO.File]::WriteAllText($sf, $body, (New-Object Text.UTF8Encoding($false)))
+        $body = $null; $tk = $null
+        $srf = Join-Path $tmpDir "sgpresp.json"
+        $code = & curl.exe -s -m 290 -o $srf -w "%{http_code}" @proxyArgs -X POST -H "Content-Type: application/json" --data-binary "@$sf" "$SiteUrl/api/matches/sync" 2>$null
+        Remove-Item $sf -Force -ErrorAction SilentlyContinue
+        if ($code -ne "200") {
+          $sgpFail = "http $code"
+          Log ("  {0}: 失败 ({1})" -f $m.name, $sgpFail)
+          break
+        }
+        $sr = $null
+        try { $sr = Get-Content $srf -Raw -Encoding UTF8 | ConvertFrom-Json } catch {}
+        $scanned = 0; $newG = 0
+        if ($sr) { $scanned = [int]$sr.scannedGames; $newG = [int]$sr.newGames; $sgpTotal = [int]$sr.totalGames }
+        $sgpNew += $newG
+        $sgpOkCount++
+        Log ("  {0}: 扫到 {1} 场, 新增 {2} 场" -f $m.name, $scanned, $newG)
+      }
+
+      if ($sgpOkCount -eq $sgpMembers.Count) {
+        Log ("ok: SGP 同步完成, 新增 {0} 场, 库里共 {1} 场" -f $sgpNew, $sgpTotal)
+        exit 0
+      }
+      Log ("SGP: 只完成 {0}/{1} 人 ({2}), 退回客户端本地接口" -f $sgpOkCount, $sgpMembers.Count, $sgpFail)
+    }
   } else {
     Log "取不到 SGP token, 走客户端本地接口"
   }

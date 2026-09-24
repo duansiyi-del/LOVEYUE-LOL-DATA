@@ -121,6 +121,13 @@ export type FetchOptions = {
   // Omit (or pass an empty set, e.g. for refreshAll) to scan the full
   // sinceMs window regardless of what's already stored.
   knownGameIds?: Set<string>;
+  /**
+   * 只同步这一个 puuid. 同步工具按成员逐个调用, 一次只拉一个人 ——
+   * 八个人一口气拉会超时: 每人翻 1000 场 = 10 轮, 八个人 80 轮, 轮间还有
+   * REQUEST_GAP_MS 的防风控间隔, 光等就 120 秒; 再加上函数跑在美国、腾讯网关在
+   * 国内, 每个请求一两秒, 必然超过 Vercel 的 300 秒上限. 拆成一人一次就稳了.
+   */
+  onlyPuuid?: string;
 };
 
 /** Page through one player's ranked history, keeping only 车队 games
@@ -439,7 +446,11 @@ export async function syncAllRosterGames(
   const allGames = new Map<string, Json>();
   const perPlayer: { name: string; scanned: number; found: number }[] = [];
 
-  for (const [i, member] of matchesRoster.entries()) {
+  const targets = opts.onlyPuuid
+    ? matchesRoster.filter((m) => m.puuid === opts.onlyPuuid)
+    : matchesRoster;
+
+  for (const [i, member] of targets.entries()) {
     if (i > 0) await sleep(REQUEST_GAP_MS);
     const { games, scanned } = await fetchPlayerRosterGames(token, member.puuid, opts);
     let foundNew = 0;

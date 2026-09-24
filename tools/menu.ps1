@@ -77,7 +77,7 @@ while ($true) {
   Write-Host ("  上次     " + $lastLog) -ForegroundColor DarkGray
   Write-Host ""
   Write-Host "  [1] 立即同步一次（只补新对局）"
-  Write-Host "  [2] 首次全量回填（尽量往回翻，翻到头自动停，慢）"
+  Write-Host "  [2] 首次全量回填（往回补历史，逐个成员拉，慢）"
   Write-Host "  [3] " -NoNewline; if ($hasTask) { Write-Host "关闭自动同步" } else { Write-Host "开启自动同步（每 30 分钟）" }
   Write-Host "  [4] 设置网站地址"
   Write-Host "  [5] 设置 / 清除代理"
@@ -89,7 +89,7 @@ while ($true) {
 
   switch ($c) {
     "1" { Run-Sync -extra @(); Read-Host "`n按回车回菜单" }
-    "2" { Run-Sync -extra @("-MaxScan", "1000"); Read-Host "`n按回车回菜单" }
+    "2" { Run-Sync -extra @("-MaxScan", "1000", "-Deep"); Read-Host "`n按回车回菜单" }
     "3" {
       if (-not (Is-Admin)) {
         Write-Host ""
