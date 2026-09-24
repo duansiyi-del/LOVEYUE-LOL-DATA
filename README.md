@@ -86,7 +86,17 @@
 1. 在 `tools/get_sgp_token.ps1` 的 `$RosterIds` 里加一行 `名字#编号`, 跑一次.
 2. 把打印出的 `{ name, riotId, puuid }` 行贴进 `src/lib/matchesRoster.ts`.
 3. 在 `src/lib/roster.ts` 里补一条: `nickname` 必须和游戏昵称完全一致 (战绩按它
-   关联), `alias` 是平时叫的名字, 全站显示走 `displayName()`; 头像可选.
+   关联), `alias` 是平时叫的名字, 全站显示走 `displayName()`.
+
+## 头像
+
+图片放 `public/roster/` 下, 在 `roster.ts` 的 `photos` 数组里填路径. 一个人可以
+放多张, 名单页卡片上能左右切换 (方向键, 或点两侧箭头 / 底部圆点); 只有一张时这些
+控件不出现. 数组为空则显示别名首字的占位块. 竖版接近 4:5 最好, 会自动裁剪填充.
+
+```ts
+photos: ["/roster/p1.jpg", "/roster/p1b.jpg"],
+```
 
 ## 本地开发
 

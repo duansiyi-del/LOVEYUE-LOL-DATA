@@ -1,6 +1,8 @@
 // 车队展示名单 (选手名单页). 昵称必须和 matchesRoster.ts 里的 name 一致,
-// 战绩页按昵称高亮车队成员. 位置 / 英雄池 / 头像先占位, 后面按实际改.
-// 头像放 public/roster/ 下, photo 留空则显示昵称首字占位块.
+// 战绩页和所有统计都按昵称关联.
+//
+// positions / champions 只是兜底: 库里有这个人的对局时, 名单页显示的是从战绩
+// 自动统计出来的分路和英雄池, 不看这两个字段.
 
 export type Player = {
   id: string;
@@ -8,10 +10,16 @@ export type Player = {
   nickname: string;
   /** 平时叫的名字, 全站显示用这个; 留空就显示游戏昵称 */
   alias: string;
-  /** 头像路径, 放 public/roster/ 下; 留空则显示别名首字的占位块 */
+  /** 兜底用的位置, 库里有数据时不生效 */
   positions: string[];
+  /** 兜底用的英雄池, 库里有数据时不生效 */
   champions: string[];
-  photo: string;
+  /**
+   * 头像, 可以放多张 —— 卡片上能左右切换 (方向键, 或点两侧箭头 / 底部圆点).
+   * 图片放 public/roster/ 下; 数组为空则显示别名首字的占位块.
+   * 竖版接近 4:5 最好, 会自动裁剪填充.
+   */
+  photos: string[];
   number: number;
 };
 
@@ -40,7 +48,7 @@ export const roster: Player[] = [
     alias: "越哥",
     positions: [],
     champions: [],
-    photo: "/roster/p1.jpg",
+    photos: ["/roster/p1.jpg"],
     number: 1,
   },
   {
@@ -49,7 +57,7 @@ export const roster: Player[] = [
     alias: "毅哥",
     positions: [],
     champions: [],
-    photo: "/roster/p2.jpg",
+    photos: ["/roster/p2.jpg"],
     number: 2,
   },
   {
@@ -58,7 +66,7 @@ export const roster: Player[] = [
     alias: "花哥",
     positions: [],
     champions: [],
-    photo: "/roster/p3.jpg",
+    photos: ["/roster/p3.jpg"],
     number: 3,
   },
   {
@@ -67,7 +75,7 @@ export const roster: Player[] = [
     alias: "该文",
     positions: [],
     champions: [],
-    photo: "/roster/p4.jpg",
+    photos: ["/roster/p4.jpg"],
     number: 4,
   },
   {
@@ -76,7 +84,7 @@ export const roster: Player[] = [
     alias: "TT",
     positions: [],
     champions: [],
-    photo: "/roster/p5.jpg",
+    photos: ["/roster/p5.jpg"],
     number: 5,
   },
   {
@@ -85,7 +93,7 @@ export const roster: Player[] = [
     alias: "猴猴",
     positions: [],
     champions: [],
-    photo: "/roster/p6.jpg",
+    photos: ["/roster/p6.jpg"],
     number: 6,
   },
   {
@@ -94,7 +102,7 @@ export const roster: Player[] = [
     alias: "农民",
     positions: [],
     champions: [],
-    photo: "/roster/p7.jpg",
+    photos: ["/roster/p7.jpg"],
     number: 7,
   },
   {
@@ -103,7 +111,7 @@ export const roster: Player[] = [
     alias: "航仔",
     positions: [],
     champions: [],
-    photo: "",
+    photos: [],
     number: 8,
   },
 ];
