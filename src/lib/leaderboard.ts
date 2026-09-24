@@ -1,7 +1,7 @@
 import "server-only";
 
 import { sql } from "@vercel/postgres";
-import { queueSlots, type MatchFilter } from "@/lib/db";
+import { ensureSchema, queueSlots, type MatchFilter } from "@/lib/db";
 
 // 分位置数据榜单.
 //
@@ -71,6 +71,10 @@ export async function leaderboard(
 ): Promise<LeaderRow[]> {
   const [qa, qb, qc] = queueSlots(filter);
   try {
+    // 这里用到的细分列 (damage_to_objectives / jungle_enemy / …) 是后加的.
+    // 老库缺列时整条查询会报错, 被下面的 catch 吞成空数组, 页面就显示"还没有对局
+    // 数据" —— 线上真的这样坑过一次. 读之前先补一遍列, 补列是幂等的.
+    await ensureSchema();
     const pos = position || null;
     const { rows } = await sql<Record<string, string | null>>`
       -- ⚠ 「占全队比例」这类指标的分母必须在【全队五个人】上算, 所以窗口函数要先

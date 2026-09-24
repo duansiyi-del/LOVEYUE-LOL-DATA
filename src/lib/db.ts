@@ -122,28 +122,43 @@ async function insertGamePlayers(
 // rather than aborting the rest of the batch.
 let schemaPatched = false;
 
-export async function insertGames(games: GameRecord[]): Promise<void> {
+/**
+ * 补齐后加的列. 幂等 (全是 IF NOT EXISTS), 每个进程只真正跑一次.
+ *
+ * ⚠ 这个一定要在【读】的路径上也调一次, 不能只在写入时补.
+ * 踩过的坑: 这些列是先加到代码里、后来才有人同步战绩的. 在那之前线上库还没有这
+ * 几列, 分位置榜单的查询每次都报 "column ... does not exist", 被 catch 成空数组,
+ * 页面于是显示"还没有对局数据" —— 明明库里有对局, 排查了半天才发现是列不存在.
+ */
+export async function ensureSchema(): Promise<void> {
+  if (schemaPatched) return;
   const client = await db.connect();
   try {
-    // 后加的列, 老库没有时自动补, 免得手工再跑一次 SQL
-    if (!schemaPatched) {
-      await client.query("ALTER TABLE matches ADD COLUMN IF NOT EXISTS game_version TEXT");
-      // 分位置榜单用的细分数据, 老库自动补上; 老对局要等一次 refreshAll 才有值
-      await client.query(`ALTER TABLE match_players
-        ADD COLUMN IF NOT EXISTS damage_to_objectives  INTEGER,
-        ADD COLUMN IF NOT EXISTS total_damage_dealt    BIGINT,
-        ADD COLUMN IF NOT EXISTS physical_damage_taken INTEGER,
-        ADD COLUMN IF NOT EXISTS magic_damage_taken    INTEGER,
-        ADD COLUMN IF NOT EXISTS true_damage_taken     INTEGER,
-        ADD COLUMN IF NOT EXISTS jungle_enemy          INTEGER,
-        ADD COLUMN IF NOT EXISTS jungle_own            INTEGER,
-        ADD COLUMN IF NOT EXISTS turret_kills          INTEGER,
-        ADD COLUMN IF NOT EXISTS inhibitor_kills       INTEGER,
-        ADD COLUMN IF NOT EXISTS units_healed          INTEGER,
-        ADD COLUMN IF NOT EXISTS total_cc_dealt        INTEGER,
-        ADD COLUMN IF NOT EXISTS longest_time_living   INTEGER`);
-      schemaPatched = true;
-    }
+    await client.query("ALTER TABLE matches ADD COLUMN IF NOT EXISTS game_version TEXT");
+    // 分位置榜单用的细分数据; 老对局要等一次 refreshAll 才有值
+    await client.query(`ALTER TABLE match_players
+      ADD COLUMN IF NOT EXISTS damage_to_objectives  INTEGER,
+      ADD COLUMN IF NOT EXISTS total_damage_dealt    BIGINT,
+      ADD COLUMN IF NOT EXISTS physical_damage_taken INTEGER,
+      ADD COLUMN IF NOT EXISTS magic_damage_taken    INTEGER,
+      ADD COLUMN IF NOT EXISTS true_damage_taken     INTEGER,
+      ADD COLUMN IF NOT EXISTS jungle_enemy          INTEGER,
+      ADD COLUMN IF NOT EXISTS jungle_own            INTEGER,
+      ADD COLUMN IF NOT EXISTS turret_kills          INTEGER,
+      ADD COLUMN IF NOT EXISTS inhibitor_kills       INTEGER,
+      ADD COLUMN IF NOT EXISTS units_healed          INTEGER,
+      ADD COLUMN IF NOT EXISTS total_cc_dealt        INTEGER,
+      ADD COLUMN IF NOT EXISTS longest_time_living   INTEGER`);
+    schemaPatched = true;
+  } finally {
+    client.release();
+  }
+}
+
+export async function insertGames(games: GameRecord[]): Promise<void> {
+  await ensureSchema();
+  const client = await db.connect();
+  try {
     for (const g of games) {
       try {
         await client.query("BEGIN");
