@@ -40,10 +40,25 @@ export async function POST(req: NextRequest) {
 
   let token: string | undefined;
   let refreshAll = false;
+  // 每人往回翻多深. 同步工具按菜单里选的那一项传进来: 日常同步小一点图快,
+  // 「首次全量回填」传大值. 夹在上下界里, 免得一个离谱的值把这个请求跑超时.
+  let want: number | undefined;
+  let maxScan: number | undefined;
+  const clamp = (v: unknown) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.min(Math.round(n), 2000) : undefined;
+  };
   try {
-    const body = (await req.json()) as { token?: string; refreshAll?: boolean };
+    const body = (await req.json()) as {
+      token?: string;
+      refreshAll?: boolean;
+      want?: number;
+      maxScan?: number;
+    };
     token = body.token?.trim();
     refreshAll = Boolean(body.refreshAll);
+    want = clamp(body.want);
+    maxScan = clamp(body.maxScan);
   } catch {
     // fall through to the missing-token error below
   }
@@ -65,7 +80,11 @@ export async function POST(req: NextRequest) {
     const fullyKnown = refreshAll
       ? undefined
       : new Set([...known].filter((id) => !incomplete.has(id)));
-    const { games, perPlayer } = await syncAllRosterGames(token, { knownGameIds: fullyKnown });
+    const { games, perPlayer } = await syncAllRosterGames(token, {
+      knownGameIds: fullyKnown,
+      want,
+      maxScan,
+    });
     const newGames = games.filter((g) => !known.has(g.gameId));
     const repairedGames = games.filter((g) => known.has(g.gameId) && incomplete.has(g.gameId));
     const toStore = refreshAll ? games : [...newGames, ...repairedGames];

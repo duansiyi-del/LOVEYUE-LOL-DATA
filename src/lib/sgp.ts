@@ -41,9 +41,14 @@ const GAME_QUEUES: Record<number, string> = {
   400: "匹配",
   490: "匹配",
 };
-const PAGE = 20;
-const MAX_SCAN_DEFAULT = 400;
-const WANT_DEFAULT = 60;
+// 一页要多少条. 2026-09-24 在国服客户端实测: count=100 照常返回 200 和 100 条
+// (见 tools/depth_test.ps1 那次的输出). 客户端本地接口每人只给 20 场且忽略翻页,
+// SGP 这边没有这个毛病 —— 页开大一点就少几轮请求, 防风控的间隔也少等几次.
+const PAGE = 100;
+// 每人最多往回翻多少场 / 收够多少场就停. 一页 100 条之后这两个数放大的代价是
+// 每人多几轮请求 (每轮之间等 REQUEST_GAP_MS), 8 个人 x 10 轮还在 300s 预算内.
+const MAX_SCAN_DEFAULT = 1000;
+const WANT_DEFAULT = 400;
 const REQUEST_GAP_MS = 1500; // matches lol_ranked_sync's SLEEP — don't lower this, it exists to avoid Tencent's risk control
 
 function sleep(ms: number) {

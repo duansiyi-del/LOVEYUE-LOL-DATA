@@ -111,6 +111,52 @@ try {
 
   $proxyArgs = @(); if ($Proxy) { $proxyArgs = @("-x", $Proxy) }
 
+  # ---- 3.5 先试 SGP: 服务端直接拉, 不受客户端缓存限制 ----
+  # 为什么要有这一段: 客户端本地那个战绩接口【每人只给最近 20 场, 而且忽略翻页
+  # 参数】—— 2026-09-24 八个成员挨个试过, 全是 20 场, 换成 current-summoner 写法
+  # 或者一次要 100 条都一样. 同一天实测 SGP 一次要 100 条正常返回, 那边是服务端的
+  # 完整战绩, 深度和"能不能查别人"都不是问题.
+  # 所以优先走 SGP; 不通 (取不到 token / 网关拒了 / 网站报错) 再退回本地接口那条路.
+  #
+  # ⚠ token 的处理: 它是这个账号十分钟有效的凭证. 这里只把它写进一个临时文件用来
+  # POST, 发完立刻删; 从不写进日志, 也不回显. 出错时只打印 http 状态码.
+  $ent = $null
+  $entRaw = & curl.exe -s -k --fail -m 15 -u "riot:$authToken" -H "Accept: application/json" "https://127.0.0.1:$port/entitlements/v1/token" 2>$null
+  if ($entRaw) { try { $ent = ($entRaw -join "") | ConvertFrom-Json } catch {} }
+
+  if ($ent -and $ent.accessToken) {
+    Log "试 SGP 直连 (服务端拉全队, 不受客户端 20 场限制)"
+    $sf = Join-Path $tmpDir "sgp.json"
+    # 深度用同一个 -MaxScan: 菜单里「立即同步」是默认值, 「首次全量回填」传 1000.
+    # SGP 这边是服务端翻页, 和客户端那条路的语义一致 —— 每人最多往回翻这么多场.
+    $sgpBody = @{
+      token      = [string]$ent.accessToken
+      refreshAll = [bool]$RefreshAll
+      want       = $MaxScan
+      maxScan    = $MaxScan
+    } | ConvertTo-Json -Compress
+    [IO.File]::WriteAllText($sf, $sgpBody, (New-Object Text.UTF8Encoding($false)))
+    $sgpBody = $null
+    $srf = Join-Path $tmpDir "sgpresp.json"
+    $code = & curl.exe -s -m 290 -o $srf -w "%{http_code}" @proxyArgs -X POST -H "Content-Type: application/json" --data-binary "@$sf" "$SiteUrl/api/matches/sync" 2>$null
+    Remove-Item $sf -Force -ErrorAction SilentlyContinue
+    if ($code -eq "200") {
+      $sr = $null
+      try { $sr = Get-Content $srf -Raw -Encoding UTF8 | ConvertFrom-Json } catch {}
+      if ($sr) {
+        foreach ($p in $sr.perPlayer) { Log ("  {0}: 翻了 {1} 场, 命中 {2} 场" -f $p.name, $p.scanned, $p.found) }
+        Log ("ok: SGP 扫到 {0} 场, 新增 {1} 场, 库里共 {2} 场" -f $sr.scannedGames, $sr.newGames, $sr.totalGames)
+      } else {
+        Log "ok: SGP 同步完成"
+      }
+      exit 0
+    }
+    if ($code -eq "401") { Log "SGP: token 被拒 (401), 退回客户端本地接口" }
+    else { Log "SGP: 没成功 (http $code), 退回客户端本地接口" }
+  } else {
+    Log "取不到 SGP token, 走客户端本地接口"
+  }
+
   # ---- 4. 网站已有哪些对局 ----
   $known = @{}
   if (-not $RefreshAll) {
@@ -195,12 +241,9 @@ try {
       $okMembers++
       # 说明这一轮为什么停: 是客户端没有更早的了, 还是撞了 MaxScan.
       # 不写清楚的话, 看到的现象就只是"只有最近两周", 会误以为是时间限制.
-      # 写成三条独立赋值而不是 if/elseif 链: PowerShell 的 elseif 不能换行另起一行,
-      # 而这台开发机上没有 pwsh 能先跑一遍语法, 宁可用最笨但一定能解析的写法.
-      # 顺序=后面的覆盖前面的.
       $why = " (客户端没有更早的了)"
-      if ($gotForThis -le $pageSize) { $why = " (客户端只给了第一页)" }
       if ($beg -ge $MaxScan) { $why = " (到 -MaxScan $MaxScan 上限, 还能更深)" }
+      elseif ($gotForThis -le $pageSize) { $why = " (客户端只给了第一页, 它忽略翻页参数)" }
       Log ("  {0}: 翻到 {1} 场{2}" -f $mem.name, $gotForThis, $why)
     }
   }
