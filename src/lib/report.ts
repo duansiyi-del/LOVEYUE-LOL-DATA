@@ -169,6 +169,10 @@ export async function memberPositions(filter: MatchFilter): Promise<MemberPositi
         AND m.game_creation_ms >= ${filter.sinceMs}
         AND (${filter.untilMs}::bigint IS NULL OR m.game_creation_ms < ${filter.untilMs}::bigint)
         AND m.roster_count >= ${filter.min}
+        AND (
+          (${qa}::text IS NULL AND ${qb}::text IS NULL AND ${qc}::text IS NULL)
+          OR m.queue_name = ${qa}::text OR m.queue_name = ${qb}::text OR m.queue_name = ${qc}::text
+        )
       GROUP BY mp.member, mp.position
       ORDER BY mp.member, COUNT(*) DESC
     `;

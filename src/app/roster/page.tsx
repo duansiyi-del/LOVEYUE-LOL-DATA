@@ -31,7 +31,7 @@ export default async function RosterPage() {
         </p>
         <h1 className="font-display mt-3 text-4xl font-extrabold sm:text-5xl">{TEAM_NAME}</h1>
         <p className="mt-3 text-xs text-[var(--muted)]">
-          分路、英雄池、胜率按已同步的全部排位对局自动统计（不含大乱斗和自定义）
+          分路、英雄池、胜率按已同步的全部排位对局自动统计（不含大乱斗和自定义）· 点名字看个人页
           {anyMultiPhoto ? " · 多张照片的卡片可以左右切换" : ""}
         </p>
       </div>
@@ -49,6 +49,7 @@ export default async function RosterPage() {
           return (
             <RosterCard
               key={p.id}
+              href={`/roster/${p.id}`}
               alias={displayName(p.nickname)}
               nickname={p.nickname}
               number={p.number}

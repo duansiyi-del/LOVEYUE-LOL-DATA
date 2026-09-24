@@ -1,13 +1,19 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useState } from "react";
 
 // 名单卡片. 做成客户端组件只有一个原因: 一个人可以放多张照片, 要能左右切换.
 // 三种切换方式: 点两侧箭头、点底部圆点、卡片获得焦点后按左右方向键.
 // 只有一张照片时这些控件全部不出现, 卡片和原来一样.
+//
+// 整张卡片是通往个人页的链接. 做法是把 Link 铺在名字上再用伪元素撑满整张卡
+// (stretched link): 直接把 Link 包在外面的话, 里面的切图按钮就成了链接里的按钮,
+// 点一下会连带跳转. 箭头和圆点抬到 z-30, 压在伪元素上面, 所以切图不会误触发跳转.
 
 export type RosterCardProps = {
+  href: string;
   alias: string;
   nickname: string;
   number: number;
@@ -19,6 +25,7 @@ export type RosterCardProps = {
 };
 
 export default function RosterCard({
+  href,
   alias,
   nickname,
   number,
@@ -48,7 +55,7 @@ export default function RosterCard({
       }}
       aria-label={many ? `${alias}，${photos.length} 张照片，左右方向键切换` : alias}
     >
-      <span className="absolute right-3 top-3 z-20 rounded-sm bg-[var(--gold)] px-2 py-0.5 font-display text-xs font-bold text-[#0a0f1e]">
+      <span className="pointer-events-none absolute right-3 top-3 z-20 rounded-sm bg-[var(--gold)] px-2 py-0.5 font-display text-xs font-bold text-[#0a0f1e]">
         NO.{String(number).padStart(2, "0")}
       </span>
 
@@ -83,7 +90,7 @@ export default function RosterCard({
               type="button"
               onClick={() => go(-1)}
               aria-label="上一张"
-              className="absolute left-1 top-1/2 z-10 -translate-y-1/2 rounded-sm bg-[#0a0f1e]/60 px-2 py-3 text-sm text-white/80 opacity-0 transition hover:bg-[#0a0f1e]/85 hover:text-[var(--gold)] focus:opacity-100 group-hover:opacity-100"
+              className="absolute left-1 top-1/2 z-30 -translate-y-1/2 rounded-sm bg-[#0a0f1e]/60 px-2 py-3 text-sm text-white/80 opacity-0 transition hover:bg-[#0a0f1e]/85 hover:text-[var(--gold)] focus:opacity-100 group-hover:opacity-100"
             >
               ‹
             </button>
@@ -91,11 +98,11 @@ export default function RosterCard({
               type="button"
               onClick={() => go(1)}
               aria-label="下一张"
-              className="absolute right-1 top-1/2 z-10 -translate-y-1/2 rounded-sm bg-[#0a0f1e]/60 px-2 py-3 text-sm text-white/80 opacity-0 transition hover:bg-[#0a0f1e]/85 hover:text-[var(--gold)] focus:opacity-100 group-hover:opacity-100"
+              className="absolute right-1 top-1/2 z-30 -translate-y-1/2 rounded-sm bg-[#0a0f1e]/60 px-2 py-3 text-sm text-white/80 opacity-0 transition hover:bg-[#0a0f1e]/85 hover:text-[var(--gold)] focus:opacity-100 group-hover:opacity-100"
             >
               ›
             </button>
-            <div className="absolute bottom-8 left-0 right-0 z-10 flex justify-center gap-1.5">
+            <div className="absolute bottom-8 left-0 right-0 z-30 flex justify-center gap-1.5">
               {photos.map((src, idx) => (
                 <button
                   key={src}
@@ -121,7 +128,14 @@ export default function RosterCard({
 
       <div className="px-1 pb-1 pt-3">
         <div className="mb-2 h-[2px] w-8 -skew-x-12 bg-[var(--gold)]" />
-        <h3 className="truncate text-lg font-black">{alias}</h3>
+        <h3 className="truncate text-lg font-black">
+          <Link
+            href={href}
+            className="transition after:absolute after:inset-0 after:content-[''] hover:text-[var(--gold)]"
+          >
+            {alias}
+          </Link>
+        </h3>
         <p className="mb-2 truncate text-[11px] text-[var(--muted)]">{nickname}</p>
 
         <div className="mb-2 flex min-h-[22px] flex-wrap gap-1.5">

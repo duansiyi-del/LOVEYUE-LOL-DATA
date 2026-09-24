@@ -25,6 +25,7 @@ export default function RadarChart({
   const cx = size / 2;
   const cy = size / 2;
   const r = size / 2 - 26; // 留出轴标签的位置
+  const labelPad = Math.round(size * 0.14); // 轴标签探出画布的那部分
 
   // 从正上方开始顺时针
   const angle = (i: number) => (Math.PI * 2 * i) / n - Math.PI / 2;
@@ -38,8 +39,11 @@ export default function RadarChart({
 
   const rings = [0.25, 0.5, 0.75, 1];
 
+  // viewBox 左右各放宽 labelPad: 轴标签画在 1.22r 处再按 start/end 对齐, 文字会探出
+  // size 的边界, 不放宽就会被裁掉 (窄屏上尤其明显).
+
   return (
-    <svg viewBox={`0 0 ${size} ${size}`} className="h-auto w-full" role="img">
+    <svg viewBox={`${-labelPad} 0 ${size + labelPad * 2} ${size}`} className="h-auto w-full" role="img">
       {/* 背景环与轴线, 颜色要退到背景里去, 不能和数据抢 */}
       {rings.map((g) => (
         <polygon
