@@ -112,6 +112,48 @@ try {
     Say ("  {0,-18} http {1}  拿到 {2} 场" -f $f.name, $r.code, $r.count)
   }
 
+  # ===== 第二部分: 从客户端日志里挖出它自己是怎么调 SGP 的 =====
+  # 直接调 SGP 一直返回 400 (任何路径都 400, 连不存在的路径也是), 说明请求在网关
+  # 层就被拒了, 缺了真实客户端才带的东西. 客户端自己调用时会在日志里留下 URL,
+  # 有时还有请求头, 挖出来就知道差在哪.
+  Say ""
+  Say "===== 客户端日志里的 SGP 痕迹 ====="
+  $logDirs = @()
+  $exe2 = $proc.ExecutablePath
+  if (-not $exe2) { try { $exe2 = (Get-Process -Id $proc.ProcessId -ErrorAction Stop).Path } catch {} }
+  if ($exe2) {
+    $root = Split-Path $exe2 -Parent
+    $logDirs += (Join-Path $root "Logs")
+    $logDirs += (Join-Path (Split-Path $root -Parent) "Logs")
+  }
+  $logFiles = @()
+  foreach ($d in $logDirs) {
+    if (Test-Path $d) {
+      $logFiles += Get-ChildItem -Path $d -Recurse -Include *.log, *.txt -ErrorAction SilentlyContinue |
+                   Sort-Object LastWriteTime -Descending | Select-Object -First 12
+    }
+  }
+  if (-not $logFiles) {
+    Say "  没找到日志目录 (试过: $($logDirs -join ' | '))"
+  } else {
+    Say ("  扫描 {0} 个日志文件" -f $logFiles.Count)
+    $hits = 0
+    foreach ($lf in $logFiles) {
+      $matched = Select-String -Path $lf.FullName -Pattern "sgp\.lol\.qq\.com|match-history-query" -ErrorAction SilentlyContinue |
+                 Select-Object -First 6
+      foreach ($m in $matched) {
+        $t = $m.Line
+        # 把长串 base64 / JWT 打码, 别把 token 写进报告
+        $t = [regex]::Replace($t, "[A-Za-z0-9_\-]{40,}", "<已打码>")
+        if ($t.Length -gt 400) { $t = $t.Substring(0, 400) + " ..." }
+        Say ("  [{0}] {1}" -f $lf.Name, $t.Trim())
+        $hits++
+      }
+      if ($hits -ge 25) { break }
+    }
+    if ($hits -eq 0) { Say "  日志里没有 SGP 相关的行" }
+  }
+
   $lines | Set-Content -Path $outFile -Encoding UTF8
   Write-Host ""
   Write-Host "结果已存到: $outFile" -ForegroundColor Green
