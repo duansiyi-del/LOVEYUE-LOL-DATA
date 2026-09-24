@@ -1,5 +1,7 @@
 # LOVEYUE LOL DATA
 
+线上地址: https://www.loveyue.xyz
+
 车队战绩站, 基于 Next.js, 部署在 Vercel, 数据存 Vercel Postgres.
 
 ## 页面

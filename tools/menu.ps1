@@ -13,7 +13,8 @@ New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
 $cfgPath = Join-Path $dataDir "config.json"
 $logPath = Join-Path $dataDir "sync.log"
 $TaskName = "LOVEYUE-LOL-Sync"
-$DefaultSite = "https://loveyue-lol-data-1x4k.vercel.app"
+# 正式地址是 www: Vercel 把主域名设成 308 跳转到 www, 直接用 www 少一跳
+$DefaultSite = "https://www.loveyue.xyz"
 
 function Load-Config {
   $site = $DefaultSite

@@ -17,7 +17,7 @@
 
 param(
   # 网站地址. 绑了自定义域名后改这里, 或者在计划任务参数里加 -SiteUrl
-  [string]$SiteUrl = "https://loveyue-lol-data-1x4k.vercel.app",
+  [string]$SiteUrl = "https://www.loveyue.xyz",
   # vercel.app 国内直连不通时填本机代理, 例如 "http://127.0.0.1:7890"; 绑了域名后留空
   [string]$Proxy = "",
   # 往回翻多少场. 首次回填可以调大, 例如 -MaxScan 200
