@@ -195,10 +195,18 @@ public class TrustAll : ICertificatePolicy {
     $sgpRegion = $claims.dat.r
   } catch {}
   if (-not $sgpRegion) { $sgpRegion = $region }
-  $sgpBase = "https://$sgpRegion-sgp.lol.qq.com:21019"
+  $sgpMap = @{
+    "HN1"="https://hn1-k8s-sgp.lol.qq.com:21019"; "HN10"="https://hn10-k8s-sgp.lol.qq.com:21019"
+    "TJ100"="https://tj100-sgp.lol.qq.com:21019"; "TJ101"="https://tj101-sgp.lol.qq.com:21019"
+    "NJ100"="https://nj100-sgp.lol.qq.com:21019"; "GZ100"="https://gz100-sgp.lol.qq.com:21019"
+    "CQ100"="https://cq100-sgp.lol.qq.com:21019"; "BGP2"="https://bgp2-k8s-sgp.lol.qq.com:21019"
+  }
+  # 主机名必须小写, 大写会被网关以 400 挡掉
+  $sgpBase = $sgpMap[$sgpRegion.ToUpper()]
+  if (-not $sgpBase) { $sgpBase = "https://" + $sgpRegion.ToLower() + "-sgp.lol.qq.com:21019" }
   Write-Host "==== SGP 验证 ($sgpBase) ====" -ForegroundColor Cyan
   if ($curl) {
-    $ua = "LeagueOfLegendsClient/14.22.632.3512 (rcp-be-lol-match-history)"
+    $ua = "LeagueOfLegendsClient/14.13.596.7996 (rcp-be-lol-match-history)"
     $mhUrl = "$sgpBase/match-history-query/v1/products/lol/player/$($me.puuid)/SUMMARY?startIndex=0&count=2"
     $tmp = Join-Path $env:TEMP "sgp_probe.json"
     foreach ($pair in @(@("A", $ent.accessToken), @("B", $lst))) {

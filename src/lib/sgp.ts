@@ -22,7 +22,8 @@ import {
 // lol_ranked_sync/README.md. The token is only ever held in memory for the
 // duration of one sync request; it is never logged, stored, or persisted.
 
-const UA = "LeagueOfLegendsClient/14.22.632.3512 (rcp-be-lol-match-history)";
+// 和那份可用实现保持一致的版本号; 网关对 UA 也可能有要求
+const UA = "LeagueOfLegendsClient/14.13.596.7996 (rcp-be-lol-match-history)";
 // 只保留这 5 种模式；其余（大乱斗排位、克隆大乱斗、云顶之弈等）一律跳过。
 // 420/440 是官方 queueId，来自 Riot 的 queues.json，非常确定。
 // 450 = 大乱斗（Howling Abyss ARAM）。

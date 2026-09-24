@@ -23,10 +23,16 @@
 `tools/auto_sync.ps1` 读出来, POST 给 `/api/matches/import` 入库
 (格式转换见 `src/lib/lcu.ts`).
 
-原本想走 SGP (`src/lib/sgp.ts`), 但实测走不通: token 鉴权能过 (不带 token 返回
-401), 之后【任何路径都返回 400】, 连不存在的路径也是 400 而不是 404 —— 请求在
-路由之前就被网关挡掉, 多半缺了真实客户端才带的请求头. 两台机器分别验证过, 不是
-出口网络的问题. sgp.ts 暂时留着备查.
+SGP (`src/lib/sgp.ts`) 之前一直返回 400, 对照一个真实可用的开源实现
+(cridyy/lol-stats 的 `src-tauri/src/services/sgp.rs`) 后找到原因: **主机名必须小写**.
+我们用的是 `GZ100-sgp.lol.qq.com`, 正确写法是 `gz100-sgp.lol.qq.com`; 网关对 Host
+精确匹配, 对不上就一律 400 —— 这正好解释了「任何路径都 400, 连不存在的路径也是
+400 而不是 404」. 另外不同大区规则不一样, 有的带 `-k8s-`, 映射表在
+`matchesRoster.ts` 的 `SGP_BASE_BY_REGION`.
+
+那份实现的注释还说明了为什么必须走 SGP: LCU 的
+`/lol-match-history/v1/products/lol/{puuid}/matches` 在部分国服客户端上会忽略
+`begIndex/endIndex`, 只能稳定拿到第一页 —— 和我们「只同步到 20 场」的现象完全吻合.
 
 ⚠ 覆盖范围: 只有跑脚本那台机器登录的账号打过的对局. 车队局只要有一个人在场,
 十个人的数据都在; 想更全就在多个成员机器上各跑一份.

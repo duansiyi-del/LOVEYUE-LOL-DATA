@@ -112,7 +112,65 @@ try {
     Say ("  {0,-18} http {1}  拿到 {2} 场" -f $f.name, $r.code, $r.count)
   }
 
-  # ===== 第二部分: 从客户端日志里挖出它自己是怎么调 SGP 的 =====
+  # ===== 第二部分: 用修正后的写法重试 SGP =====
+  # 之前直连 SGP 一直 400. 对比一个真实可用的开源实现 (cridyy/lol-stats) 后发现
+  # 我们的主机名用了大写 GZ100-sgp...., 而它用的是【小写】gz100-sgp....
+  # 网关对 Host 做精确匹配时, 大小写就会导致"任何路径都 400"这种表现.
+  # 另外不同大区主机名规则不一样, 有的带 -k8s-, 这里按那份实现的映射表来.
+  Say ""
+  Say "===== SGP 直连重试 (修正大小写) ====="
+  $ent = $null
+  $c2 = & curl.exe -s -k --fail -m 15 -u "riot:$authToken" -H "Accept: application/json" "https://127.0.0.1:$port/entitlements/v1/token" 2>$null
+  if ($c2) { $ent = ($c2 -join "") | ConvertFrom-Json }
+  $lst = $null
+  $c3 = & curl.exe -s -k --fail -m 15 -u "riot:$authToken" -H "Accept: application/json" "https://127.0.0.1:$port/lol-league-session/v1/league-session-token" 2>$null
+  if ($c3) { $lst = ($c3 -join "").Trim('"') }
+
+  if (-not $ent -or -not $ent.accessToken) {
+    Say "  取不到 accessToken, 跳过"
+  } else {
+    # 真实大区在 token 的 dat.r 里 (platformId 返回的 TENCENT 不能用来拼域名)
+    $payload = ($ent.accessToken -split '\.')[1].Replace('-','+').Replace('_','/')
+    while ($payload.Length % 4) { $payload += '=' }
+    $claims = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($payload)) | ConvertFrom-Json
+    $rso = [string]$claims.dat.r
+    Say "  大区 (token 里的 dat.r): $rso"
+
+    $map = @{
+      "HN1"="https://hn1-k8s-sgp.lol.qq.com:21019"; "HN10"="https://hn10-k8s-sgp.lol.qq.com:21019"
+      "TJ100"="https://tj100-sgp.lol.qq.com:21019"; "TJ101"="https://tj101-sgp.lol.qq.com:21019"
+      "NJ100"="https://nj100-sgp.lol.qq.com:21019"; "GZ100"="https://gz100-sgp.lol.qq.com:21019"
+      "CQ100"="https://cq100-sgp.lol.qq.com:21019"; "BGP2"="https://bgp2-k8s-sgp.lol.qq.com:21019"
+    }
+    $base = $map[$rso.ToUpper()]
+    if (-not $base) { $base = "https://" + $rso.ToLower() + "-sgp.lol.qq.com:21019" }
+    Say "  基址: $base"
+
+    $ua2 = "LeagueOfLegendsClient/14.13.596.7996 (rcp-be-lol-match-history)"
+    $tmp2 = Join-Path $env:TEMP "loveyue_sgp.json"
+    foreach ($pair in @(@("accessToken", $ent.accessToken), @("leagueSessionToken", $lst))) {
+      $lbl = $pair[0]; $tk = $pair[1]
+      if (-not $tk) { continue }
+      $u = "$base/match-history-query/v1/products/lol/player/$puuid/SUMMARY?startIndex=0&count=5"
+      $code = & curl.exe -s -k -m 25 -o $tmp2 -w "%{http_code}" -H "Authorization: Bearer $tk" -H "User-Agent: $ua2" -H "Accept: application/json" $u 2>$null
+      $n = -1
+      if ($code -eq "200") {
+        try { $j2 = Get-Content $tmp2 -Raw -Encoding UTF8 | ConvertFrom-Json; $n = @($j2.games).Count } catch {}
+      }
+      Say ("  {0,-20} http {1}   拿到 {2} 场" -f $lbl, $code, $(if ($n -ge 0) { $n } else { "-" }))
+      if ($code -eq "200") {
+        # 通了就试深翻: 一次要 100 条
+        $u2 = "$base/match-history-query/v1/products/lol/player/$puuid/SUMMARY?startIndex=0&count=100"
+        $code2 = & curl.exe -s -k -m 40 -o $tmp2 -w "%{http_code}" -H "Authorization: Bearer $tk" -H "User-Agent: $ua2" -H "Accept: application/json" $u2 2>$null
+        $n2 = -1
+        if ($code2 -eq "200") { try { $j3 = Get-Content $tmp2 -Raw -Encoding UTF8 | ConvertFrom-Json; $n2 = @($j3.games).Count } catch {} }
+        Say ("  {0,-20} 一次要 100 条 -> http {1}  拿到 {2} 场" -f "", $code2, $(if ($n2 -ge 0) { $n2 } else { "-" }))
+        break
+      }
+    }
+  }
+
+  # ===== 第三部分: 从客户端日志里挖出它自己是怎么调 SGP 的 =====
   # 直接调 SGP 一直返回 400 (任何路径都 400, 连不存在的路径也是), 说明请求在网关
   # 层就被拒了, 缺了真实客户端才带的东西. 客户端自己调用时会在日志里留下 URL,
   # 有时还有请求头, 挖出来就知道差在哪.

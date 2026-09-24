@@ -7,13 +7,28 @@
 // 加人: 在 get_sgp_token.ps1 的名单里加一行 Riot ID 跑一次, 把打印出来的
 // { name, riotId, puuid } 行贴到下面数组里即可.
 
-// ⚠ SGP 现状 (2026-09-23 两台机器分别实测): token 鉴权能过 (不带 token 返回
-// 401, 带上就不再是 401), 但之后【任何路径都返回 400】, 连乱写的不存在路径也是
-// 400 而不是 404 —— 请求在路由之前就被网关挡掉了, 多半缺了真实客户端才会带的
-// 请求头. 在装着客户端、客户端正在运行的那台 Windows 上跑也是同样结果, 所以不
-// 是出口网络或工具指纹的问题. 数据源正在改用客户端本地的 LCU 接口.
+// SGP 大区地址. 注意三件事 (对照真实可用的开源实现 cridyy/lol-stats 核过):
+//   1. 主机名必须【小写】—— 我们之前用 GZ100-sgp... 一直被网关以 400 挡掉,
+//      任何路径都 400 (连不存在的路径也是 400 而不是 404), 正是 Host 精确匹配
+//      不上的典型表现.
+//   2. 不同大区规则不一样, 有的带 -k8s-, 不能统一按「小写 + -sgp」拼.
+//   3. 真实大区在 token 的 dat.r 字段里. 客户端 platformId 接口返回的是统一
+//      平台名 TENCENT, 拿它拼域名必然失败.
+const SGP_BASE_BY_REGION: Record<string, string> = {
+  HN1: "https://hn1-k8s-sgp.lol.qq.com:21019",
+  HN10: "https://hn10-k8s-sgp.lol.qq.com:21019",
+  TJ100: "https://tj100-sgp.lol.qq.com:21019",
+  TJ101: "https://tj101-sgp.lol.qq.com:21019",
+  NJ100: "https://nj100-sgp.lol.qq.com:21019",
+  GZ100: "https://gz100-sgp.lol.qq.com:21019",
+  CQ100: "https://cq100-sgp.lol.qq.com:21019",
+  BGP2: "https://bgp2-k8s-sgp.lol.qq.com:21019",
+};
+
 export const SGP_REGION_CODE = "GZ100";
-export const SGP_BASE = `https://${SGP_REGION_CODE}-sgp.lol.qq.com:21019`;
+export const SGP_BASE =
+  SGP_BASE_BY_REGION[SGP_REGION_CODE] ??
+  `https://${SGP_REGION_CODE.toLowerCase()}-sgp.lol.qq.com:21019`;
 
 // 拉取端的最低门槛: 同一方至少 1 名车队成员就存, 也就是名单里每个人的对局
 // 尽量全存. 「几个人才算车队局」是展示层的筛选参数 (见 filters.ts), 在网页上调.
