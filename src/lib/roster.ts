@@ -48,7 +48,7 @@ export const roster: Player[] = [
     alias: "越哥",
     positions: [],
     champions: [],
-    photos: ["/roster/p1.jpg"],
+    photos: ["/roster/p1.jpg", "/roster/p1b.jpg"],
     number: 1,
   },
   {
