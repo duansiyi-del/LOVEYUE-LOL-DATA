@@ -144,7 +144,10 @@ try {
   function Get-SgpToken {
     $raw = & curl.exe -s -k --fail -m 15 -u "riot:$authToken" -H "Accept: application/json" "https://127.0.0.1:$port/entitlements/v1/token" 2>$null
     if (-not $raw) { return $null }
-    try { return [string](($raw -join "") | ConvertFrom-Json).accessToken } catch { return $null }
+    $o = $null
+    try { $o = ($raw -join "") | ConvertFrom-Json } catch { return $null }
+    if (-not $o.accessToken) { return $null }
+    return [string]$o.accessToken
   }
 
   # 大区在 token 的 dat.r 里 (current-summoner 给的 platformId 是 TENCENT, 拼不出域名).
@@ -231,18 +234,38 @@ try {
       $script:sgpUnparsed = 0
       $script:sgpBad = ""
 
-      foreach ($m in $sgpMembers) {
+      # ⚠ SGP 只认"token 是谁的就查谁": 拿本机登录这个账号的 token 去查队友的 puuid
+      # 会直接 401 (2026-09-24 实测). 客户端本地接口没有这个限制, 查谁都行 ——
+      # 两条路在这件事上不一样, 别按本地接口的经验去想 SGP.
+      # 所以: 自己排最前面 (这一个失败才算真失败), 别人 401 就跳过继续.
+      # 车队局是十个人一起存的, 所以自己那份完整历史已经覆盖了所有有自己在场的局;
+      # 想补别人单独打的, 让他在自己机器上跑一次.
+      $selfPuuid = [string]$me.puuid
+      $ordered = @($sgpMembers | Where-Object { [string]$_.puuid -eq $selfPuuid })
+      $ordered += @($sgpMembers | Where-Object { [string]$_.puuid -ne $selfPuuid })
+
+      foreach ($m in $ordered) {
         $tk = Get-SgpToken
         if (-not $tk) { $script:sgpBad = "token 取不到了"; break }
         $mp = [string]$m.puuid
         $mSeen = 0
         $mUp = 0
         $startIdx = 0
+        $skipMember = $false
         while ($startIdx -lt $MaxScan) {
           $u = "$sgpBase/match-history-query/v1/products/lol/player/$mp/SUMMARY?startIndex=$startIdx&count=$sgpPage"
           $pf2 = Join-Path $tmpDir "sgppage.json"
           $c4 = & curl.exe -s -k -m 60 -o $pf2 -w "%{http_code}" -H "Authorization: Bearer $tk" -H "User-Agent: $sgpUa" -H "Accept: application/json" $u 2>$null
-          if ($c4 -ne "200") { $script:sgpBad = "拉取失败 http $c4 (第 $startIdx 条起)"; break }
+          if ($c4 -ne "200") {
+            $isSelf = ($mp -eq $selfPuuid)
+            if (($c4 -eq "401") -and (-not $isSelf)) {
+              # 预料之中: 这个 token 不属于他. 不算失败, 换下一个人.
+              $skipMember = $true
+              break
+            }
+            $script:sgpBad = "拉取失败 http $c4 (第 $startIdx 条起)"
+            break
+          }
           $pg = $null
           try { $pg = Get-Content $pf2 -Raw -Encoding UTF8 | ConvertFrom-Json } catch {}
           $gs = @()
@@ -273,7 +296,11 @@ try {
         $null = Send-Sgp
         $sgpSeen += $mSeen
         $sgpUp += $mUp
-        Log ("  {0}: 翻了 {1} 场, 其中 {2} 场要传" -f $m.name, $mSeen, $mUp)
+        if ($skipMember) {
+          Log ("  {0}: 查不了别人的 (401), 跳过" -f $m.name)
+        } else {
+          Log ("  {0}: 翻了 {1} 场, 其中 {2} 场要传" -f $m.name, $mSeen, $mUp)
+        }
         if ($script:sgpBad) { break }
       }
 
@@ -286,7 +313,11 @@ try {
     }
   }
 
-  if ($sgpDone) { exit 0 }
+  # SGP 成功也【继续】走下面本地接口那条路, 不要在这里退出.
+  # 原因: SGP 只能拿到本机这个账号自己的历史 (查别人 401), 而他不在场的车队局
+  # 只能从别人的战绩里看到 —— 本地接口虽然每人只给 20 场, 但恰好补的是这一块.
+  # 代价很小: 已经入库的对局不会重新拉详情.
+  if ($sgpDone) { Log "SGP 那一轮完成, 继续用客户端本地接口补别人的最近对局" }
 
   # ---- 5. 取车队名单, 逐个翻战绩, 挑出新的 gameId ----
   # 客户端历史接口一次最多给 20 条; 部分国服客户端还会忽略翻页参数, 只给第一页.
