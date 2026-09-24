@@ -39,7 +39,7 @@ export function parseItemIds(items: string): number[] {
     .filter((n) => Number.isFinite(n) && n > 0);
 }
 
-type DdragonListing = { data: Record<string, { key: string; id: string; name: string }> };
+type DdragonListing = { data: Record<string, { key: string; id: string; name: string; tags?: string[] }> };
 
 async function fetchIdKeyMap(path: string): Promise<Record<number, string>> {
   const version = await getDdragonVersion();
@@ -114,4 +114,26 @@ export async function getChampionNameMap(): Promise<Record<number, string>> {
     cachedChampionNames = {};
   }
   return cachedChampionNames;
+}
+
+let cachedChampionTags: Record<number, string[]> | null = null;
+
+/** 数字 championId -> 官方英雄分类 (Fighter / Tank / Mage / Assassin / Marksman / Support).
+ * 一个英雄通常有一到两个标签. 来自 Data Dragon 的 champion.json, 是 Riot 自己的分类. */
+export async function getChampionTagMap(): Promise<Record<number, string[]>> {
+  if (cachedChampionTags) return cachedChampionTags;
+  const version = await getDdragonVersion();
+  try {
+    const res = await fetch(
+      `https://ddragon.leagueoflegends.com/cdn/${version}/data/en_US/champion.json`,
+      { next: { revalidate: 60 * 60 * 24 } }
+    );
+    const json = (await res.json()) as DdragonListing;
+    const map: Record<number, string[]> = {};
+    for (const entry of Object.values(json.data)) map[Number(entry.key)] = entry.tags ?? [];
+    cachedChampionTags = map;
+  } catch {
+    cachedChampionTags = {};
+  }
+  return cachedChampionTags;
 }
