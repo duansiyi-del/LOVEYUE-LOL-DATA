@@ -7,7 +7,8 @@
     "dev:local": "LOCAL_PG=1 next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "pack:tools": "node scripts/pack-tools.mjs"
   },
   "dependencies": {
     "@vercel/postgres": "^0.10.0",

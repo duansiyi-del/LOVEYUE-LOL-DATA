@@ -87,6 +87,17 @@ SGP (`src/lib/sgp.ts`) 之前一直返回 400, 对照一个真实可用的开源
   对手分低」暂时答不了. 同一个探测脚本会把一场对局的完整原始 JSON 存下来, 看看
   返回里到底有没有段位, 以及有没有单独的排位接口可用.
 
+## 工具包怎么发给队友
+
+装客户端的那台 Windows 一般没代理也不方便连 git, 但它本来就能访问这个网站
+(它就是往这儿同步战绩的). 所以工具包直接挂在网站上:
+
+    https://www.loveyue.xyz/download
+
+改完 `tools/` 下任何文件后, 跑一次 `npm run pack:tools` 重新打包, 再提交产物
+(`public/download/LOVEYUE-sync.zip`). 打包脚本会把中文文件名换成英文
+(中文名的 zip 在 Windows 上解出来常常乱码), 并拒绝任何非 ASCII 文件名.
+
 ## 加成员
 
 1. 在 `tools/get_sgp_token.ps1` 的 `$RosterIds` 里加一行 `名字#编号`, 跑一次.

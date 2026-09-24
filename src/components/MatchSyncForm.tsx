@@ -70,6 +70,14 @@ export default function MatchSyncForm() {
         </button>
       </form>
 
+      <p className="mt-3 text-xs text-[var(--muted)]">
+        没有 token？装了客户端的电脑用
+        <a href="/download" className="mx-1 text-[var(--gold)] hover:underline">
+          同步工具包
+        </a>
+        更省事，装一次之后自动同步。
+      </p>
+
       <label className="mt-3 flex items-center gap-2 text-xs text-[var(--muted)]">
         <input
           type="checkbox"
