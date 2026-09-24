@@ -8,6 +8,7 @@ export type Player = {
   nickname: string;
   /** 平时叫的名字, 全站显示用这个; 留空就显示游戏昵称 */
   alias: string;
+  /** 头像路径, 放 public/roster/ 下; 留空则显示别名首字的占位块 */
   positions: string[];
   champions: string[];
   photo: string;
@@ -39,7 +40,7 @@ export const roster: Player[] = [
     alias: "越哥",
     positions: [],
     champions: [],
-    photo: "",
+    photo: "/roster/p1.jpg",
     number: 1,
   },
   {
@@ -57,7 +58,7 @@ export const roster: Player[] = [
     alias: "花哥",
     positions: [],
     champions: [],
-    photo: "",
+    photo: "/roster/p3.jpg",
     number: 3,
   },
   {
@@ -66,7 +67,7 @@ export const roster: Player[] = [
     alias: "该文",
     positions: [],
     champions: [],
-    photo: "",
+    photo: "/roster/p4.jpg",
     number: 4,
   },
   {
@@ -84,7 +85,7 @@ export const roster: Player[] = [
     alias: "猴猴",
     positions: [],
     champions: [],
-    photo: "",
+    photo: "/roster/p6.jpg",
     number: 6,
   },
   {
@@ -93,7 +94,7 @@ export const roster: Player[] = [
     alias: "农民",
     positions: [],
     champions: [],
-    photo: "",
+    photo: "/roster/p7.jpg",
     number: 7,
   },
   {
