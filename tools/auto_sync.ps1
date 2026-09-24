@@ -132,6 +132,7 @@ try {
   $oldestMs = 0
   $beg = 0
   $pageSize = 20
+  $lastSig = ""
 
   # 客户端历史接口一次最多给 20 条, 要靠 begIndex/endIndex 翻页.
   # 两个路径都试: current-summoner 的有时翻到第二页就不给了, 带 puuid 的那个
@@ -163,6 +164,16 @@ try {
     $got = if ($games) { @($games).Count } else { 0 }
     Log "  begIndex=$beg 拿到 $got 场"
     if ($got -eq 0) { break }
+
+    # 部分国服客户端会【忽略 begIndex/endIndex】, 每页都返回同样的第一页 (20 条).
+    # 不检出来就会空转到 MaxScan. 拿本页 id 和上页比, 一样就停.
+    $sig = (@($games) | ForEach-Object { [string]$_.gameId }) -join ","
+    if ($sig -eq $lastSig) {
+      Log "  这一页和上一页完全相同 —— 客户端忽略了翻页参数, 只能拿到第一页"
+      Log "  (这是部分国服客户端的已知行为, 不是脚本的问题; 深翻要走 SGP)"
+      break
+    }
+    $lastSig = $sig
     foreach ($g in $games) {
       $gid = [string]$g.gameId
       $seen++

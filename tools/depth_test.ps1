@@ -54,8 +54,8 @@ try {
   $tmp = Join-Path $env:TEMP "loveyue_depth.json"
   function Get-Page($path) {
     $code = & curl.exe -s -k -m 30 -o $tmp -w "%{http_code}" -u "riot:$authToken" -H "Accept: application/json" "https://127.0.0.1:$port$path" 2>$null
-    if ($code -ne "200") { return @{ code = $code; count = -1; oldest = $null } }
-    try { $j = Get-Content $tmp -Raw -Encoding UTF8 | ConvertFrom-Json } catch { return @{ code = "parse-fail"; count = -1; oldest = $null } }
+    if ($code -ne "200") { return @{ code = $code; count = -1; oldest = $null; sig = "" } }
+    try { $j = Get-Content $tmp -Raw -Encoding UTF8 | ConvertFrom-Json } catch { return @{ code = "parse-fail"; count = -1; oldest = $null; sig = "" } }
     $games = $j.games.games
     if (-not $games) { $games = $j.games }
     $arr = @($games)
@@ -64,7 +64,8 @@ try {
       $ms = ($arr | ForEach-Object { [double]$_.gameCreation } | Where-Object { $_ -gt 0 } | Measure-Object -Minimum).Minimum
       if ($ms -gt 0) { $oldest = ([DateTimeOffset]::FromUnixTimeMilliseconds([long]$ms)).LocalDateTime.ToString("yyyy-MM-dd") }
     }
-    return @{ code = $code; count = $arr.Count; oldest = $oldest }
+    $sig = (@($arr) | ForEach-Object { [string]$_.gameId }) -join ","
+    return @{ code = $code; count = $arr.Count; oldest = $oldest; sig = $sig }
   }
 
   $me = $null
@@ -90,11 +91,18 @@ try {
     Say $f.path.Replace("{0}","N").Replace("{1}","M")
     $total = 0
     $deepest = 0
+    $lastSig = ""
     for ($beg = 0; $beg -lt 400; $beg += 20) {
       $end = $beg + 19
       $r = Get-Page ([string]::Format($f.path, $beg, $end))
       if ($r.count -lt 0) { Say ("  begIndex={0,-4} http {1}  <- 停在这里" -f $beg, $r.code); break }
       Say ("  begIndex={0,-4} 拿到 {1,3} 场   最早 {2}" -f $beg, $r.count, $r.oldest)
+      # 部分国服客户端忽略 begIndex/endIndex, 每页都返回同样的第一页
+      if ($r.sig -ne "" -and $r.sig -eq $lastSig) {
+        Say "  <- 和上一页完全相同: 客户端忽略了翻页参数, 只能拿第一页"
+        break
+      }
+      $lastSig = $r.sig
       $total += $r.count
       if ($r.count -gt 0) { $deepest = $beg + $r.count }
       if ($r.count -eq 0) { Say "  (返回空, 到头了)"; break }
