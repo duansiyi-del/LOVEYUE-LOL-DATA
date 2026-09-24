@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import championTitles from "@/data/championTitles.json";
 import { isDbConfigured } from "@/lib/db";
-import { banStats, memberMatchups, type MemberMatchup } from "@/lib/draft";
+import { banAdvice, memberMatchups, type MemberMatchup } from "@/lib/draft";
 import { loadOpggBaseline, type OpggBaseline } from "@/lib/opgg";
 import { parseFilters, applyFilterParams, type FilterInput } from "@/lib/filters";
 import { displayName, roster } from "@/lib/roster";
@@ -124,25 +124,82 @@ function MatchupTable({ rows, base }: { rows: MemberMatchup[]; base: OpggBaselin
   );
 }
 
-function BanList({ title, hint, rows, total }: { title: string; hint: string; rows: { championId: number; count: number }[]; total: number }) {
+function BanAdvice({
+  list,
+  totalGames,
+  overallRate,
+}: {
+  list: {
+    champion: string;
+    championId: number;
+    faced: number;
+    ourWins: number;
+    ourRate: number;
+    encounterRate: number;
+    ciLo: number;
+    ciHi: number;
+    conclusive: boolean;
+    bannedByUs: number;
+  }[];
+  totalGames: number;
+  overallRate: number;
+}) {
+  if (!list.length) {
+    return (
+      <p className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-6 text-center text-sm text-[var(--muted)]">
+        还没有足够的对局算出 ban 位建议。
+      </p>
+    );
+  }
   return (
-    <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-4">
-      <p className="font-display text-sm font-semibold text-[var(--gold)]">{title}</p>
-      <p className="mb-2 text-xs text-[var(--muted)]">{hint}</p>
-      {rows.length ? (
-        <ul className="space-y-1 text-sm">
-          {rows.slice(0, 8).map((b) => (
-            <li key={b.championId} className="flex justify-between gap-2">
-              <span className="truncate">{champName[String(b.championId)] ?? `英雄 ${b.championId}`}</span>
-              <span className="shrink-0 text-xs text-[var(--muted)]">
-                {b.count} 次 · {total ? pct(b.count / total) : "—"}
-              </span>
-            </li>
+    <div className="overflow-x-auto rounded-sm border border-[var(--border)] bg-[var(--bg-panel)]">
+      <table className="w-full text-sm">
+        <thead className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+          <tr className="border-b border-[var(--border)]">
+            <th className="px-3 py-2 text-left">建议 ban</th>
+            <th className="px-3 py-2 text-right">遇到</th>
+            <th className="px-3 py-2 text-right">遇到频率</th>
+            <th className="px-3 py-2 text-right">我方胜率</th>
+            <th className="px-3 py-2 text-right">对比总体</th>
+            <th className="px-3 py-2 text-left">把握</th>
+          </tr>
+        </thead>
+        <tbody>
+          {list.slice(0, 12).map((b, i) => (
+            <tr key={b.champion} className="border-b border-[var(--border)]/50 last:border-0">
+              <td className="px-3 py-2">
+                <span className={i < 3 ? "font-semibold text-[var(--gold)]" : ""}>
+                  {i + 1}. {b.champion}
+                </span>
+                {b.bannedByUs > 0 ? (
+                  <span className="ml-2 text-[11px] text-[var(--muted)]">已常 ban</span>
+                ) : null}
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums">{b.faced} 场</td>
+              <td className="px-3 py-2 text-right tabular-nums">{pct(b.encounterRate)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">
+                {pct(b.ourRate)}
+                <span className="ml-1 text-[11px] text-[var(--muted)]">
+                  {pct(b.ciLo)}~{pct(b.ciHi)}
+                </span>
+              </td>
+              <td
+                className={`px-3 py-2 text-right tabular-nums ${
+                  b.conclusive ? "text-[var(--status-critical)]" : ""
+                }`}
+              >
+                {Math.round((b.ourRate - overallRate) * 100)}pp
+              </td>
+              <td className="px-3 py-2 text-xs text-[var(--muted)]">
+                {b.conclusive ? "区间完全低于总体" : "区间和总体有重叠"}
+              </td>
+            </tr>
           ))}
-        </ul>
-      ) : (
-        <p className="text-sm text-[var(--muted)]">还没有 ban 位数据。</p>
-      )}
+        </tbody>
+      </table>
+      <p className="border-t border-[var(--border)] px-3 py-2 text-[11px] text-[var(--muted)]">
+        共 {totalGames} 场，总体胜率 {pct(overallRate)}
+      </p>
     </div>
   );
 }
@@ -156,11 +213,11 @@ export default async function MatchupsPage({
   const filters = parseFilters(sp);
   const dbReady = isDbConfigured();
 
-  const [matchups, bans, base] = dbReady
-    ? await Promise.all([memberMatchups(filters), banStats(filters), loadOpggBaseline()])
+  const [matchups, ban, base] = dbReady
+    ? await Promise.all([memberMatchups(filters), banAdvice(filters), loadOpggBaseline()])
     : [
         [] as MemberMatchup[],
-        { againstUs: [], byUs: [], matches: 0 },
+        { list: [], totalGames: 0, overallRate: 0 },
         { matchups: new Map(), overall: new Map(), updatedAt: null } as OpggBaseline,
       ];
 
@@ -226,19 +283,17 @@ export default async function MatchupsPage({
         </p>
       ) : (
         <div className="space-y-10">
-          <section className="grid gap-4 sm:grid-cols-2">
-            <BanList
-              title="对面最常 ban 掉的"
-              hint={`共 ${bans.matches} 场有 ban 位记录。这是别人忌惮我们什么。`}
-              rows={bans.againstUs}
-              total={bans.matches}
-            />
-            <BanList
-              title="我们最常 ban 掉的"
-              hint="我们自己的 ban 习惯，和下面的苦手列表对照着看。"
-              rows={bans.byUs}
-              total={bans.matches}
-            />
+          <section>
+            <h2 className="font-display mb-1 text-sm font-semibold uppercase tracking-wider text-[var(--gold)]">
+              ban 位建议
+            </h2>
+            <p className="mb-3 text-xs text-[var(--muted)]">
+              按「遇到频率 × 胜率缺口」排序，不是单纯按胜率低排 ——
+              三场全败的冷门英雄不该顶在最前面，
+              <span className="text-[var(--foreground)]">又常遇到、又确实打不过</span>的才值一个 ban 位。
+              胜率缺口用向总体收缩后的估计，样本少时自动往中间靠。
+            </p>
+            <BanAdvice list={ban.list} totalGames={ban.totalGames} overallRate={ban.overallRate} />
           </section>
 
           <section>

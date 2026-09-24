@@ -733,3 +733,111 @@ export function attribute(games: TeamGame[]): Attribution {
       .sort((a, b) => a.avgScoreVsTeam - b.avgScoreVsTeam),
   };
 }
+
+// ---- ban 位建议 --------------------------------------------------------
+// 「我们 ban 了什么」只是记录习惯, 不产生决策. 真正有用的是: 对面拿出什么英雄时
+// 我们最吃亏, 那才是该 ban 的.
+//
+// 不能直接按胜率升序排 —— 那样三场全败的冷门英雄会顶在最前面, 而真正该 ban 的是
+// 【又常遇到、又确实打不过】的那些. 所以排序用一个乘积:
+//
+//   ban 价值 = 遇到频率 × 胜率缺口
+//
+// 其中胜率缺口用向【我们自己总体胜率】收缩后的估计, 样本少时自动往中间靠, 不会
+// 被几场的波动带跑. 频率这一项保证了"十场里遇到八次、胜率低五个点"排在"两场全败"
+// 前面 —— 前者一个 ban 位能换回更多胜场.
+
+export type BanSuggestion = {
+  champion: string;
+  championId: number;
+  faced: number; // 遇到过几场
+  ourWins: number;
+  ourRate: number;
+  shrunkRate: number; // 向总体收缩后的胜率
+  encounterRate: number; // 遇到频率 = faced / 总场次
+  banValue: number; // 排序用
+  ciLo: number;
+  ciHi: number;
+  conclusive: boolean; // 区间是否已经完全低于总体水平
+  bannedByUs: number; // 我们已经 ban 掉它几次
+};
+
+/** 向总体胜率收缩. k 相当于"先验里有多少场按总体水平算", 取 6 场. */
+function shrink(wins: number, games: number, prior: number, k = 6): number {
+  return (wins + prior * k) / (games + k);
+}
+
+export async function banAdvice(
+  filter: MatchFilter
+): Promise<{ list: BanSuggestion[]; totalGames: number; overallRate: number }> {
+  try {
+    const [enemies, bans, overall] = await Promise.all([
+      enemyChampions(filter),
+      banStats(filter),
+      (async () => {
+        const { rows } = await sql<{ games: string; wins: string }>`
+          WITH our_team AS (
+            SELECT mp.game_id, mp.team_id, BOOL_OR(mp.win) AS win
+            FROM match_players mp
+            JOIN matches m ON m.game_id = mp.game_id
+            WHERE mp.member <> ''
+              AND m.game_creation_ms >= ${filter.sinceMs}
+              AND (${filter.untilMs}::bigint IS NULL OR m.game_creation_ms < ${filter.untilMs}::bigint)
+            GROUP BY mp.game_id, mp.team_id
+            HAVING COUNT(*) >= ${filter.min}
+          )
+          SELECT COUNT(*)::text AS games,
+                 SUM(CASE WHEN win THEN 1 ELSE 0 END)::text AS wins
+          FROM our_team
+        `;
+        return { games: Number(rows[0]?.games ?? 0), wins: Number(rows[0]?.wins ?? 0) };
+      })(),
+    ]);
+
+    const totalGames = overall.games;
+    const overallRate = totalGames ? overall.wins / totalGames : 0;
+    const bannedMap = new Map(bans.byUs.map((b) => [b.championId, b.count]));
+
+    const list = enemies
+      .map((e) => {
+        // enemyChampions 里的 wins 是【对面】赢的场次
+        const ourWins = e.games - e.wins;
+        const ourRate = e.games ? ourWins / e.games : 0;
+        const sr = shrink(ourWins, e.games, overallRate);
+        const ci = wilsonLocal(ourWins, e.games);
+        const encounterRate = totalGames ? e.games / totalGames : 0;
+        return {
+          champion: e.champion,
+          championId: e.championId,
+          faced: e.games,
+          ourWins,
+          ourRate,
+          shrunkRate: sr,
+          encounterRate,
+          banValue: encounterRate * Math.max(0, overallRate - sr),
+          ciLo: ci.lo,
+          ciHi: ci.hi,
+          conclusive: ci.hi < overallRate,
+          bannedByUs: bannedMap.get(e.championId) ?? 0,
+        };
+      })
+      .filter((x) => x.banValue > 0)
+      .sort((a, b) => b.banValue - a.banValue);
+
+    return { list, totalGames, overallRate };
+  } catch (err) {
+    console.error("[banAdvice] failed", err);
+    return { list: [], totalGames: 0, overallRate: 0 };
+  }
+}
+
+// 和 report.ts 的 wilson 同一个公式, 复制一份避免 draft.ts 反向依赖 report.ts
+function wilsonLocal(wins: number, games: number, z = 1.96): { lo: number; hi: number } {
+  if (games <= 0) return { lo: 0, hi: 1 };
+  const p = wins / games;
+  const z2 = z * z;
+  const denom = 1 + z2 / games;
+  const center = (p + z2 / (2 * games)) / denom;
+  const half = (z * Math.sqrt((p * (1 - p)) / games + z2 / (4 * games * games))) / denom;
+  return { lo: Math.max(0, center - half), hi: Math.min(1, center + half) };
+}
