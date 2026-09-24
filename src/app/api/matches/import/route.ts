@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getKnownGameIds, insertGames, isDbConfigured } from "@/lib/db";
 import { buildGameRecordFromLcu, type LcuGame } from "@/lib/lcu";
+import { buildGameRecord as buildGameRecordFromSgp } from "@/lib/sgp";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -21,13 +22,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "数据库还没配置好" }, { status: 503 });
   }
 
-  let body: { games?: LcuGame[] };
+  // source: "lcu" (默认) = 客户端本地接口那套字段; "sgp" = 腾讯服务端那套.
+  //
+  // 为什么 SGP 的对局也从这个口进来, 而不是让网站自己去拉 (/api/matches/sync):
+  // 那条路是【Vercel 的机器】去请求腾讯网关, 跑在美国. 而实测通的是【客户端所在
+  // 那台机器】发的请求 (2026-09-24 用户机器上 200, 一次 100 场). 境外 IP 能不能用
+  // 没有把握, 而且跨境还要绕一圈、受函数 300 秒上限约束.
+  // 改成脚本在本地拉好再原样发过来: 这个配置有实测证据, 也没有时限问题.
+  let body: { games?: unknown[]; source?: string };
   try {
-    body = (await req.json()) as { games?: LcuGame[] };
+    body = (await req.json()) as { games?: unknown[]; source?: string };
   } catch {
     return NextResponse.json({ error: "请求体不是 JSON" }, { status: 400 });
   }
   const raw = body.games;
+  const fromSgp = body.source === "sgp";
   if (!Array.isArray(raw) || !raw.length) {
     return NextResponse.json({ error: "没有对局数据" }, { status: 400 });
   }
@@ -38,7 +47,16 @@ export async function POST(req: NextRequest) {
     let unparsed = 0;
     const records = [];
     for (const g of raw) {
-      const rec = buildGameRecordFromLcu(g);
+      // LCU 那个转换函数认不出来时返回 null; SGP 那个是直接抛. 包一层, 让单独一条
+      // 畸形数据只算作"解析不了", 而不是把整批都带崩.
+      let rec = null;
+      try {
+        rec = fromSgp
+          ? buildGameRecordFromSgp(g as Record<string, unknown>)
+          : buildGameRecordFromLcu(g as LcuGame);
+      } catch (e) {
+        console.error("[matches/import] 单条解析失败", e);
+      }
       if (!rec) {
         unparsed++;
         continue;

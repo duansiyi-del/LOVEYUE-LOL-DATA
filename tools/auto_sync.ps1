@@ -114,84 +114,7 @@ try {
 
   $proxyArgs = @(); if ($Proxy) { $proxyArgs = @("-x", $Proxy) }
 
-  # ---- 3.5 先试 SGP: 服务端直接拉, 不受客户端缓存限制 ----
-  # 为什么要有这一段: 客户端本地那个战绩接口【每人只给最近 20 场, 而且忽略翻页
-  # 参数】—— 2026-09-24 八个成员挨个试过, 全是 20 场, 换成 current-summoner 写法
-  # 或者一次要 100 条都一样. 同一天实测 SGP 一次要 100 条正常返回, 那边是服务端的
-  # 完整战绩, 深度和"能不能查别人"都不是问题.
-  # 所以优先走 SGP; 不通 (取不到 token / 网关拒了 / 网站报错) 再退回本地接口那条路.
-  #
-  # ⚠ 一次只同步一个人. 八个人一口气拉必定超时: 每人翻 1000 场 = 10 轮请求, 八个人
-  # 80 轮, 轮间还有防风控间隔, 光等就两分钟; 函数跑在美国、腾讯网关在国内, 每个请求
-  # 还要一两秒 —— 加起来超过 Vercel 的 300 秒上限, 函数被掐断, 脚本就退回本地接口,
-  # 表现就是"又只有 20 场". 拆成一人一次, 每次十几秒, 碰不到上限.
-  #
-  # ⚠ token 的处理: 它是这个账号十分钟有效的凭证. 每个人同步前重新取一次 (本机调用,
-  # 很便宜), 免得八个人跑下来过期. 只写进一个临时文件用来 POST, 发完立刻删;
-  # 从不写进日志, 也不回显. 出错时只打印 http 状态码.
-  function Get-SgpToken {
-    $raw = & curl.exe -s -k --fail -m 15 -u "riot:$authToken" -H "Accept: application/json" "https://127.0.0.1:$port/entitlements/v1/token" 2>$null
-    if (-not $raw) { return $null }
-    try { return [string](($raw -join "") | ConvertFrom-Json).accessToken } catch { return $null }
-  }
-
-  if (Get-SgpToken) {
-    Log "SGP 直连: 逐个成员同步 (每人最多往回翻 $MaxScan 场)"
-
-    # 名单从网站取, 和下面本地接口那条路用的是同一份
-    $sgpMembers = @()
-    $rf0 = Join-Path $tmpDir "roster0.json"
-    if ((& curl.exe -s -m 60 -o $rf0 -w "%{http_code}" @proxyArgs "$SiteUrl/api/roster" 2>$null) -eq "200") {
-      try { $sgpMembers = @((Get-Content $rf0 -Raw -Encoding UTF8 | ConvertFrom-Json).members) } catch {}
-    }
-
-    if ($sgpMembers.Count -eq 0) {
-      Log "SGP: 取不到车队名单, 退回客户端本地接口"
-    } else {
-      $sgpOkCount = 0
-      $sgpNew = 0
-      $sgpTotal = 0
-      $sgpFail = ""
-      foreach ($m in $sgpMembers) {
-        $tk = Get-SgpToken
-        if (-not $tk) { $sgpFail = "取不到 token"; break }
-        $sf = Join-Path $tmpDir "sgp.json"
-        $body = @{ token = $tk; puuid = [string]$m.puuid; refreshAll = [bool]$RefreshAll; deep = [bool]$Deep; want = $MaxScan; maxScan = $MaxScan } | ConvertTo-Json -Compress
-        [IO.File]::WriteAllText($sf, $body, (New-Object Text.UTF8Encoding($false)))
-        $body = $null; $tk = $null
-        $srf = Join-Path $tmpDir "sgpresp.json"
-        $code = & curl.exe -s -m 290 -o $srf -w "%{http_code}" @proxyArgs -X POST -H "Content-Type: application/json" --data-binary "@$sf" "$SiteUrl/api/matches/sync" 2>$null
-        Remove-Item $sf -Force -ErrorAction SilentlyContinue
-        if ($code -ne "200") {
-          # 把服务端返回的原因也打出来. 只有状态码的话每次都得靠猜是 token 被拒、
-          # 网关拦了还是我们自己的代码报错. 这个响应体里不含 token, 只有错误文案.
-          $detail = ""
-          if (Test-Path $srf) { $detail = (Get-Content $srf -Raw -Encoding UTF8).Trim() }
-          if ($detail.Length -gt 300) { $detail = $detail.Substring(0, 300) }
-          $sgpFail = "http $code $detail"
-          Log ("  {0}: 失败 ({1})" -f $m.name, $sgpFail)
-          break
-        }
-        $sr = $null
-        try { $sr = Get-Content $srf -Raw -Encoding UTF8 | ConvertFrom-Json } catch {}
-        $scanned = 0; $newG = 0
-        if ($sr) { $scanned = [int]$sr.scannedGames; $newG = [int]$sr.newGames; $sgpTotal = [int]$sr.totalGames }
-        $sgpNew += $newG
-        $sgpOkCount++
-        Log ("  {0}: 扫到 {1} 场, 新增 {2} 场" -f $m.name, $scanned, $newG)
-      }
-
-      if ($sgpOkCount -eq $sgpMembers.Count) {
-        Log ("ok: SGP 同步完成, 新增 {0} 场, 库里共 {1} 场" -f $sgpNew, $sgpTotal)
-        exit 0
-      }
-      Log ("SGP: 只完成 {0}/{1} 人 ({2}), 退回客户端本地接口" -f $sgpOkCount, $sgpMembers.Count, $sgpFail)
-    }
-  } else {
-    Log "取不到 SGP token, 走客户端本地接口"
-  }
-
-  # ---- 4. 网站已有哪些对局 ----
+  # ---- 3.4 网站已有哪些对局 (两条路都要用: 已有的就不必再拉再传) ----
   $known = @{}
   if (-not $RefreshAll) {
     $kf = Join-Path $tmpDir "known.json"
@@ -205,6 +128,165 @@ try {
       Log "warn: 取已有列表失败 (http $code), 这次全量发送"
     }
   }
+
+  # ---- 3.5 先试 SGP: 本机直接拉腾讯服务端的战绩 ----
+  # 为什么要有这一段: 客户端本地那个战绩接口【每人只给最近 20 场, 而且忽略翻页
+  # 参数】—— 2026-09-24 八个成员挨个试过, 全是 20 场, 换写法、一次要 100 条都一样.
+  # SGP 是腾讯服务端的完整战绩, 同一天在这台机器上实测: 一次要 100 条就给 100 条.
+  #
+  # ⚠ 为什么是【这台机器】去请求, 而不是把 token 发给网站让网站去拉:
+  # 网站跑在 Vercel (美国). 实测通过的是客户端所在这台机器发的请求; 境外 IP 能不能
+  # 用没有把握, 而且跨境绕一圈还受函数 300 秒上限约束. 先前那版就是让网站去拉的,
+  # 一直失败. 这里改成本地拉好、再把对局原样发给网站入库.
+  #
+  # ⚠ token: 这个账号十分钟有效的凭证. 只放在内存里当请求头用, 每个成员开始前重新
+  # 取一次 (本机调用很便宜), 免得翻久了过期. 不写日志、不落盘、不发给网站.
+  function Get-SgpToken {
+    $raw = & curl.exe -s -k --fail -m 15 -u "riot:$authToken" -H "Accept: application/json" "https://127.0.0.1:$port/entitlements/v1/token" 2>$null
+    if (-not $raw) { return $null }
+    try { return [string](($raw -join "") | ConvertFrom-Json).accessToken } catch { return $null }
+  }
+
+  # 大区在 token 的 dat.r 里 (current-summoner 给的 platformId 是 TENCENT, 拼不出域名).
+  # ⚠ 主机名必须小写: 网关对 Host 做精确匹配, 大写会导致任何路径都返回 400.
+  function Get-SgpBase($tk) {
+    try {
+      $seg = ($tk -split '\.')[1].Replace('-','+').Replace('_','/')
+      while ($seg.Length % 4) { $seg += '=' }
+      $rso = [string](([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($seg))) | ConvertFrom-Json).dat.r
+    } catch { return $null }
+    if (-not $rso) { return $null }
+    $map = @{
+      "HN1"="https://hn1-k8s-sgp.lol.qq.com:21019"; "HN10"="https://hn10-k8s-sgp.lol.qq.com:21019"
+      "TJ100"="https://tj100-sgp.lol.qq.com:21019"; "TJ101"="https://tj101-sgp.lol.qq.com:21019"
+      "NJ100"="https://nj100-sgp.lol.qq.com:21019"; "GZ100"="https://gz100-sgp.lol.qq.com:21019"
+      "CQ100"="https://cq100-sgp.lol.qq.com:21019"; "BGP2"="https://bgp2-k8s-sgp.lol.qq.com:21019"
+    }
+    $b = $map[$rso.ToUpper()]
+    if (-not $b) { $b = "https://" + $rso.ToLower() + "-sgp.lol.qq.com:21019" }
+    return $b
+  }
+
+  $sgpDone = $false
+  $tk0 = Get-SgpToken
+  $sgpBase = $null
+  if ($tk0) { $sgpBase = Get-SgpBase $tk0 }
+
+  if (-not $tk0) {
+    Log "取不到 SGP token, 走客户端本地接口"
+  } elseif (-not $sgpBase) {
+    Log "SGP: 解不出大区, 走客户端本地接口"
+  } else {
+    Log "SGP 本机直连: $sgpBase (每人最多往回翻 $MaxScan 场)"
+
+    $sgpMembers = @()
+    $rf0 = Join-Path $tmpDir "roster0.json"
+    if ((& curl.exe -s -m 60 -o $rf0 -w "%{http_code}" @proxyArgs "$SiteUrl/api/roster" 2>$null) -eq "200") {
+      try { $sgpMembers = @((Get-Content $rf0 -Raw -Encoding UTF8 | ConvertFrom-Json).members) } catch {}
+    }
+
+    if ($sgpMembers.Count -eq 0) {
+      Log "SGP: 取不到车队名单, 走客户端本地接口"
+    } else {
+      $sgpUa = "LeagueOfLegendsClient/14.13.596.7996 (rcp-be-lol-match-history)"
+      $sgpPage = 100
+      $sgpNew = 0
+      $sgpSeen = 0
+      $sgpUp = 0
+      $sgpBad = ""
+      $sentIds = @{}
+
+      # 分批发给网站: 一次发太多会超过函数的请求体上限, 20 场一批是稳的.
+      $upBatch = New-Object System.Collections.ArrayList
+      function Send-Sgp {
+        if ($script:upBatch.Count -eq 0) { return $true }
+        $pf = Join-Path $script:tmpDir "sgpup.json"
+        $payload = @{ source = "sgp"; games = $script:upBatch.ToArray() } | ConvertTo-Json -Depth 30 -Compress
+        [IO.File]::WriteAllText($pf, $payload, (New-Object Text.UTF8Encoding($false)))
+        $rr = Join-Path $script:tmpDir "sgpupresp.json"
+        $cc = & curl.exe -s -m 240 -o $rr -w "%{http_code}" @script:proxyArgs -X POST -H "Content-Type: application/json" --data-binary "@$pf" "$script:SiteUrl/api/matches/import" 2>$null
+        Remove-Item $pf -Force -ErrorAction SilentlyContinue
+        $script:upBatch.Clear()
+        if ($cc -ne "200") {
+          $d = ""
+          if (Test-Path $rr) { $d = (Get-Content $rr -Raw -Encoding UTF8).Trim() }
+          if ($d.Length -gt 200) { $d = $d.Substring(0, 200) }
+          $script:sgpBad = "上传失败 http $cc $d"
+          return $false
+        }
+        try {
+          $j = Get-Content $rr -Raw -Encoding UTF8 | ConvertFrom-Json
+          $script:sgpNew += [int]$j.newGames
+          # 解析不了的数量要盯着: SGP 的字段和客户端那套不一样, 如果转换有问题,
+          # 表现就是"传上去了但一场都没入库", 有这个数就不用猜了.
+          $script:sgpUnparsed += [int]$j.skippedUnparsed
+        } catch {}
+        return $true
+      }
+      $script:upBatch = $upBatch
+      $script:tmpDir = $tmpDir
+      $script:proxyArgs = $proxyArgs
+      $script:SiteUrl = $SiteUrl
+      $script:sgpNew = 0
+      $script:sgpUnparsed = 0
+      $script:sgpBad = ""
+
+      foreach ($m in $sgpMembers) {
+        $tk = Get-SgpToken
+        if (-not $tk) { $script:sgpBad = "token 取不到了"; break }
+        $mp = [string]$m.puuid
+        $mSeen = 0
+        $mUp = 0
+        $startIdx = 0
+        while ($startIdx -lt $MaxScan) {
+          $u = "$sgpBase/match-history-query/v1/products/lol/player/$mp/SUMMARY?startIndex=$startIdx&count=$sgpPage"
+          $pf2 = Join-Path $tmpDir "sgppage.json"
+          $c4 = & curl.exe -s -k -m 60 -o $pf2 -w "%{http_code}" -H "Authorization: Bearer $tk" -H "User-Agent: $sgpUa" -H "Accept: application/json" $u 2>$null
+          if ($c4 -ne "200") { $script:sgpBad = "拉取失败 http $c4 (第 $startIdx 条起)"; break }
+          $pg = $null
+          try { $pg = Get-Content $pf2 -Raw -Encoding UTF8 | ConvertFrom-Json } catch {}
+          $gs = @()
+          if ($pg -and $pg.games) { $gs = @($pg.games) }
+          if ($gs.Count -eq 0) { break }
+          foreach ($gw in $gs) {
+            $one = $gw
+            if ($gw.json) { $one = $gw.json }
+            $mSeen++
+            # 同一场车队局在八个人的历史里都会出现, 网站上已有的也会年年重复出现.
+            # 不在这里去重的话, 一场要上传八遍、每次跑都重传一遍, 慢到没法用.
+            $gidS = [string]$one.gameId
+            if (-not $gidS) { $gidS = [string]$one.matchId }
+            if (-not $gidS) { continue }
+            if ($sentIds.ContainsKey($gidS)) { continue }
+            $sentIds[$gidS] = $true
+            if ((-not $RefreshAll) -and $known.ContainsKey($gidS)) { continue }
+            [void]$script:upBatch.Add($one)
+            $mUp++
+            if ($script:upBatch.Count -ge 20) { if (-not (Send-Sgp)) { break } }
+          }
+          if ($script:sgpBad) { break }
+          if ($gs.Count -lt $sgpPage) { break }
+          $startIdx += $sgpPage
+          Start-Sleep -Milliseconds 1500
+        }
+        # 把这个人剩下不满 20 场的尾巴发出去; 失败的原因在 $script:sgpBad 里, 下面查
+        $null = Send-Sgp
+        $sgpSeen += $mSeen
+        $sgpUp += $mUp
+        Log ("  {0}: 翻了 {1} 场, 其中 {2} 场要传" -f $m.name, $mSeen, $mUp)
+        if ($script:sgpBad) { break }
+      }
+
+      if ($script:sgpBad) {
+        Log ("SGP: $($script:sgpBad), 退回客户端本地接口")
+      } else {
+        Log ("ok: SGP 翻了 {0} 场 (去重后传了 {1} 场), 新增 {2} 场, 解析不了 {3} 场" -f $sgpSeen, $sgpUp, $script:sgpNew, $script:sgpUnparsed)
+        $sgpDone = $true
+      }
+    }
+  }
+
+  if ($sgpDone) { exit 0 }
 
   # ---- 5. 取车队名单, 逐个翻战绩, 挑出新的 gameId ----
   # 客户端历史接口一次最多给 20 条; 部分国服客户端还会忽略翻页参数, 只给第一页.
