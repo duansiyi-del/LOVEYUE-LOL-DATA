@@ -196,6 +196,7 @@ try {
       $sgpNew = 0
       $sgpSeen = 0
       $sgpUp = 0
+      $sgpPartial = 0
       $sgpBad = ""
       $sentIds = @{}
 
@@ -252,27 +253,33 @@ try {
         $mUp = 0
         $startIdx = 0
         $skipMember = $false
+        $memberBad = ""
         while ($startIdx -lt $MaxScan) {
           $u = "$sgpBase/match-history-query/v1/products/lol/player/$mp/SUMMARY?startIndex=$startIdx&count=$sgpPage"
           $pf2 = Join-Path $tmpDir "sgppage.json"
           $c4 = & curl.exe -s -k -m 60 -o $pf2 -w "%{http_code}" -H "Authorization: Bearer $tk" -H "User-Agent: $sgpUa" -H "Accept: application/json" $u 2>$null
+
+          # 中途冒出来的 401 要重试, 不能当成失败.
+          # 实测: 同一轮里前面几页正常拿到 200 场, 后面才 401 —— 说明既不是"查不了
+          # 别人", 也不是 token 一开始就不对. 十分钟有效期是客户端那边的, 我们每个
+          # 成员重取一次拿到的往往还是同一个缓存 token, 跑久了照样会在某一页上过期;
+          # 腾讯的风控也可能临时拒一下. 两种都是等一下、换张新 token 再来就好.
+          $tries = 0
+          while (($c4 -ne "200") -and ($tries -lt 2)) {
+            $tries++
+            Start-Sleep -Seconds (3 * $tries)
+            $fresh = Get-SgpToken
+            if ($fresh) { $tk = $fresh }
+            $c4 = & curl.exe -s -k -m 60 -o $pf2 -w "%{http_code}" -H "Authorization: Bearer $tk" -H "User-Agent: $sgpUa" -H "Accept: application/json" $u 2>$null
+          }
+          if (($c4 -eq "200") -and ($tries -gt 0)) { Log ("    (第 $startIdx 条起重试 $tries 次后成功)") }
+
           if ($c4 -ne "200") {
-            # 队友 401 先跳过继续, 不要让整轮失败 —— 但这【不一定】是"不能查别人":
-            # 被移植的那个参考实现就是一个 token 循环查全队 8 个 puuid 的, 而且能跑.
-            # 所以先看自己那一轮通不通 (自己排在最前), 再看别人是不是真的都 401,
-            # 两者一对照才能下结论.
-            $isSelf = ($mp -eq $selfPuuid)
-            if (($c4 -eq "401") -and (-not $isSelf)) {
-              $skipMember = $true
-              break
-            }
-            # 401 有两种可能, 必须分清楚:
-            #   1. token 本身不对 (比如被解析坏了 / 过期) —— 那查谁都会 401
-            #   2. 这个 token 读不了别人的战绩
-            # 打印 token 的"形状"就能分辨: 正常的 JWT 是三段、长度一千多.
-            # 只打段数和长度, 不打内容 —— 这两个数字本身不是秘密.
+            # 重试完还是不行: 记下这个人停在哪儿, 换下一个人继续.
+            # 不要中断整轮 —— 前面已经拉到的都是白拉, 而且退回本地接口只能拿 20 场.
             $shape = "段数 $(($tk -split '\.').Count) 长度 $($tk.Length)"
-            $script:sgpBad = "拉取失败 http $c4 (第 $startIdx 条起, token $shape)"
+            $memberBad = "http $c4 (第 $startIdx 条起, token $shape)"
+            $skipMember = $true
             break
           }
           $pg = $null
@@ -306,10 +313,12 @@ try {
         $sgpSeen += $mSeen
         $sgpUp += $mUp
         if ($skipMember) {
-          Log ("  {0}: 查不了别人的 (401), 跳过" -f $m.name)
+          $sgpPartial++
+          Log ("  {0}: 翻了 {1} 场后中断 ({2}), 已传 {3} 场" -f $m.name, $mSeen, $memberBad, $mUp)
         } else {
           Log ("  {0}: 翻了 {1} 场, 其中 {2} 场要传" -f $m.name, $mSeen, $mUp)
         }
+        # 上传失败是另一回事 (网站那边的问题), 那个才值得中断
         if ($script:sgpBad) { break }
       }
 
@@ -317,6 +326,7 @@ try {
         Log ("SGP: $($script:sgpBad), 退回客户端本地接口")
       } else {
         Log ("ok: SGP 翻了 {0} 场 (去重后传了 {1} 场), 新增 {2} 场, 解析不了 {3} 场" -f $sgpSeen, $sgpUp, $script:sgpNew, $script:sgpUnparsed)
+        if ($sgpPartial -gt 0) { Log ("  其中 $sgpPartial 人没翻完, 再跑一次可以接着补") }
         $sgpDone = $true
       }
     }
