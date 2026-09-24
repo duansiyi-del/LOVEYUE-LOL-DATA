@@ -58,6 +58,8 @@ function Run-Sync([string[]]$extra) {
   if (Test-Path $logPath) { Get-Content $logPath -Tail 6 | ForEach-Object { Write-Host "  $_" } }
 }
 
+try {
+
 while ($true) {
   $cfg = Load-Config
   $hasTask = Task-Exists
@@ -85,8 +87,8 @@ while ($true) {
   $c = Read-Host "选一个"
 
   switch ($c) {
-    "1" { Run-Sync @(); Read-Host "`n按回车回菜单" }
-    "2" { Run-Sync @("-MaxScan", "200"); Read-Host "`n按回车回菜单" }
+    "1" { Run-Sync -extra @(); Read-Host "`n按回车回菜单" }
+    "2" { Run-Sync -extra @("-MaxScan", "200"); Read-Host "`n按回车回菜单" }
     "3" {
       if (-not (Is-Admin)) {
         Write-Host ""
@@ -133,4 +135,16 @@ while ($true) {
     "0" { exit 0 }
     default { }
   }
+}
+
+}
+catch {
+  # 兜底: 菜单本身出错时把错误留在屏幕上, 不要一闪而过
+  Write-Host ""
+  Write-Host "启动器出错:" -ForegroundColor Red
+  Write-Host $_.Exception.Message
+  Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
+  Write-Host ""
+  Read-Host "按回车退出"
+  exit 1
 }
