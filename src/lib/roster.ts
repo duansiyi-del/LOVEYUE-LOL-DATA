@@ -111,7 +111,7 @@ export const roster: Player[] = [
     alias: "航仔",
     positions: [],
     champions: [],
-    photos: [],
+    photos: ["/roster/p8.jpg"],
     number: 8,
   },
 ];
