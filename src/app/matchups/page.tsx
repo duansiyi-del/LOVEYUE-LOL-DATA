@@ -165,12 +165,21 @@ function BanAdvice({
           </tr>
         </thead>
         <tbody>
-          {list.slice(0, 12).map((b, i) => (
-            <tr key={b.champion} className="border-b border-[var(--border)]/50 last:border-0">
+          {list.slice(0, 15).map((b, i) => (
+            <tr
+              key={b.champion}
+              className={`border-b border-[var(--border)]/50 last:border-0 ${
+                // 排位每人 ban 一个, 所以前五名是"全队满编时的目标", 后面是备选
+                i === 5 ? "border-t-2 border-t-[var(--border)]" : ""
+              }`}
+            >
               <td className="px-3 py-2">
-                <span className={i < 3 ? "font-semibold text-[var(--gold)]" : ""}>
+                <span className={i < 5 ? "font-semibold text-[var(--gold)]" : ""}>
                   {i + 1}. {b.champion}
                 </span>
+                {i === 5 ? (
+                  <span className="ml-2 text-[11px] text-[var(--muted)]">以下为备选</span>
+                ) : null}
                 {b.bannedByUs > 0 ? (
                   <span className="ml-2 text-[11px] text-[var(--muted)]">已常 ban</span>
                 ) : null}
@@ -292,6 +301,12 @@ export default async function MatchupsPage({
               三场全败的冷门英雄不该顶在最前面，
               <span className="text-[var(--foreground)]">又常遇到、又确实打不过</span>的才值一个 ban 位。
               胜率缺口用向总体收缩后的估计，样本少时自动往中间靠。
+            </p>
+            <p className="mb-3 text-xs text-[var(--muted)]">
+              排位是每人 ban 一个，所以
+              <span className="text-[var(--foreground)]">你们当局几个人就有几个 ban 位</span>，
+              三个人开黑就只能定三个，剩下两个归路人。金色的前五名是满编时的目标，
+              下面几行留作备选 —— ban 是双方轮着来的，想 ban 的可能被对面先拿走。
             </p>
             <BanAdvice list={ban.list} totalGames={ban.totalGames} overallRate={ban.overallRate} />
           </section>
