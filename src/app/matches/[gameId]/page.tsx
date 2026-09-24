@@ -12,6 +12,7 @@ import {
   summonerSpellIconUrl,
 } from "@/lib/ddragon";
 import Pill from "@/components/Pill";
+import { displayName } from "@/lib/roster";
 
 export const dynamic = "force-dynamic";
 
@@ -389,7 +390,7 @@ function PlayerDetailCard({
               {p.multiKill ? <Pill tone="warning">{p.multiKill}</Pill> : null}
             </div>
             <p className={`font-display font-bold ${p.member ? "text-[var(--foreground)]" : "text-[var(--muted)]"}`}>
-              {p.member || p.playerName.split("#")[0]}
+              {p.member ? displayName(p.member) : p.playerName.split("#")[0]}
             </p>
             <p className="text-xs text-[var(--muted)]">
               {p.champion} · {p.playerName}

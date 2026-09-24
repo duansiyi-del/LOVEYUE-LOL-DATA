@@ -5,7 +5,7 @@ import { isDbConfigured } from "@/lib/db";
 import { banStats, memberMatchups, type MemberMatchup } from "@/lib/draft";
 import { loadOpggBaseline, type OpggBaseline } from "@/lib/opgg";
 import { parseFilters, applyFilterParams, type FilterInput } from "@/lib/filters";
-import { roster } from "@/lib/roster";
+import { displayName, roster } from "@/lib/roster";
 import MatchFilterBar from "@/components/MatchFilterBar";
 import OpggRefreshButton from "@/components/OpggRefreshButton";
 
@@ -253,7 +253,7 @@ export default async function MatchupsPage({
                       : "border-[var(--border)] text-[var(--muted)] hover:border-[var(--gold)]/50 hover:text-[var(--foreground)]"
                   }`}
                 >
-                  {m}
+                  {displayName(m)}
                 </Link>
               ))}
             </div>

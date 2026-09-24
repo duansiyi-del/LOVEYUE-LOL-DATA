@@ -11,6 +11,7 @@ import {
 } from "@/lib/draft";
 import { parseFilters, applyFilterParams, type FilterInput } from "@/lib/filters";
 import MatchFilterBar from "@/components/MatchFilterBar";
+import { displayName } from "@/lib/roster";
 
 export const dynamic = "force-dynamic";
 
@@ -134,7 +135,7 @@ export default async function AttributionPage({
                       : "border-[var(--border)] text-[var(--muted)] hover:border-[var(--gold)]/50"
                   }`}
                 >
-                  <span className="font-semibold">{c.members.join(" + ")}</span>
+                  <span className="font-semibold">{c.members.map(displayName).join(" + ")}</span>
                   <span className="ml-2 opacity-70">
                     {c.games} 场 · {pct(c.wins / c.games)}
                   </span>
@@ -145,7 +146,7 @@ export default async function AttributionPage({
 
           <section className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-5">
             <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="font-display text-lg font-bold">{selected.join(" + ")}</h2>
+              <h2 className="font-display text-lg font-bold">{selected.map(displayName).join(" + ")}</h2>
               <p className="text-sm text-[var(--muted)]">
                 {report.games} 场 · {report.wins} 胜 {report.games - report.wins} 负 ·{" "}
                 <span className="text-[var(--foreground)]">
@@ -204,7 +205,7 @@ export default async function AttributionPage({
                   <tbody>
                     {report.blame.map((b) => (
                       <tr key={b.key} className="border-b border-[var(--border)]/50 last:border-0">
-                        <td className="px-3 py-2">{b.key}</td>
+                        <td className="px-3 py-2">{b.member ? displayName(b.member) : b.key}</td>
                         <td className="px-3 py-2 text-[var(--muted)]">{b.position}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{b.losses}</td>
                         <td className="px-3 py-2 text-right tabular-nums">
@@ -268,7 +269,7 @@ export default async function AttributionPage({
                         <td className="px-3 py-2">{g.bucket}</td>
                         <td className="px-3 py-2 text-[var(--muted)]">
                           {g.worstLane
-                            ? `${g.worstLane.member || "路人"} ${g.worstLane.champion}` +
+                            ? `${g.worstLane.member ? displayName(g.worstLane.member) : "路人"} ${g.worstLane.champion}` +
                               (g.worstLane.score === null
                                 ? ""
                                 : ` ${g.worstLane.score.toFixed(1)} (${signed1(g.worstLane.scoreVsTeam)})`)

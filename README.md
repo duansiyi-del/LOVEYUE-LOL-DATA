@@ -7,7 +7,8 @@
 ## 页面
 
 - 首页
-- 选手名单 `/roster`: 成员位置与英雄池 (`src/lib/roster.ts`)
+- 选手名单 `/roster`: 分路 / 英雄池 / 胜率, 全部按已同步对局自动统计, 不带筛选条
+  (口径固定为全部对局; 想按赛段看去对位分析页)
 - 战绩 `/matches`: 全队车队局列表, 含评分与详情页; 顶部是同步框
 - 阵容分析 `/draft`: 我方常用英雄组合表现、最难打的对手英雄、五人阵容体检
 - 对位分析 `/matchups`: 每个人在同一分路上对过的敌方英雄、双方 ban 位习惯
@@ -77,7 +78,8 @@
 
 1. 在 `tools/get_sgp_token.ps1` 的 `$RosterIds` 里加一行 `名字#编号`, 跑一次.
 2. 把打印出的 `{ name, riotId, puuid }` 行贴进 `src/lib/matchesRoster.ts`.
-3. 在 `src/lib/roster.ts` 里补一条展示信息 (位置 / 英雄池 / 头像).
+3. 在 `src/lib/roster.ts` 里补一条: `nickname` 必须和游戏昵称完全一致 (战绩按它
+   关联), `alias` 是平时叫的名字, 全站显示走 `displayName()`; 头像可选.
 
 ## 本地开发
 

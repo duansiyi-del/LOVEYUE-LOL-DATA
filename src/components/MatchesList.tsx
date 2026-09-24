@@ -3,6 +3,7 @@ import { applyFilterParams, type FilterInput } from "@/lib/filters";
 import type { StoredMatch, StoredPlayer } from "@/lib/db";
 import { championIconUrl } from "@/lib/ddragon";
 import Pill from "@/components/Pill";
+import { displayName } from "@/lib/roster";
 
 const POSITION_ORDER: Record<string, number> = {
   TOP: 0,
@@ -98,7 +99,7 @@ function TeamBlock({
                   p.member ? "text-[var(--foreground)]" : "text-[var(--muted)]"
                 }`}
               >
-                {p.member || p.playerName.split("#")[0]}
+                {p.member ? displayName(p.member) : p.playerName.split("#")[0]}
               </span>
               <span className="hidden w-16 shrink-0 truncate text-[var(--muted)] sm:block">{p.champion}</span>
               {p.award ? (

@@ -1,9 +1,6 @@
 import Image from "next/image";
-import { roster, TEAM_NAME } from "@/lib/roster";
+import { displayName, roster, TEAM_NAME } from "@/lib/roster";
 import { getMemberProfiles, isDbConfigured, type MemberProfile } from "@/lib/db";
-import { parseFilters } from "@/lib/filters";
-import MatchFilterBar from "@/components/MatchFilterBar";
-import { Suspense } from "react";
 
 export const dynamic = "force-dynamic";
 
@@ -13,13 +10,13 @@ export const metadata = {
 
 // 名单页的分路 / 英雄池 / 场次胜率全部从已同步的战绩里统计 (见 getMemberProfiles),
 // roster.ts 里手填的 positions / champions 只在库里还没有该成员数据时兜底.
-export default async function RosterPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ min?: string; since?: string; until?: string }>;
-}) {
-  const filters = parseFilters(await searchParams);
-  const profiles = isDbConfigured() ? await getMemberProfiles(filters) : new Map<string, MemberProfile>();
+// 名单页不带筛选条: 这里要回答的是「这个人平时打什么位置、常用什么英雄」,
+// 口径固定为【全部已同步对局】—— 同一方只要有一个人 (min 1)、不限时间.
+// 想按赛段看分路和英雄池, 去对位分析页.
+const ALL_TIME = { min: 1, sinceMs: 0, untilMs: null };
+
+export default async function RosterPage() {
+  const profiles = isDbConfigured() ? await getMemberProfiles(ALL_TIME) : new Map<string, MemberProfile>();
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-16">
@@ -31,14 +28,8 @@ export default async function RosterPage({
           {TEAM_NAME}
         </h1>
         <p className="mt-3 text-xs text-[var(--muted)]">
-          分路与英雄池按已同步对局自动统计 · 分路只计召唤师峡谷
+          分路、英雄池、胜率都按已同步的全部对局自动统计 · 分路只计召唤师峡谷
         </p>
-      </div>
-
-      <div className="mb-10">
-        <Suspense fallback={null}>
-          <MatchFilterBar min={filters.min} sinceDate={filters.sinceDate} untilDate={filters.untilDate} />
-        </Suspense>
       </div>
 
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
@@ -75,7 +66,7 @@ export default async function RosterPage({
                     {/* 没头像时的占位: 取名字末字, 比首字有区分度
                         (车队昵称清一色「爱...」开头) */}
                     <span className="font-display text-6xl font-black text-[var(--gold)]/40">
-                      {p.nickname.slice(-1)}
+                      {displayName(p.nickname).slice(0, 1)}
                     </span>
                   </div>
                 )}
@@ -97,7 +88,8 @@ export default async function RosterPage({
 
               <div className="px-1 pb-1 pt-3">
                 <div className="mb-2 h-[2px] w-8 -skew-x-12 bg-[var(--gold)]" />
-                <h3 className="mb-2 truncate text-lg font-black">{p.nickname}</h3>
+                <h3 className="truncate text-lg font-black">{displayName(p.nickname)}</h3>
+                <p className="mb-2 truncate text-[11px] text-[var(--muted)]">{p.nickname}</p>
 
                 <div className="mb-2 flex min-h-[22px] flex-wrap gap-1.5">
                   {positions.length ? (
