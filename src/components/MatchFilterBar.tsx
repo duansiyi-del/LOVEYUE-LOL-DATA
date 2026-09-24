@@ -34,7 +34,7 @@ export default function MatchFilterBar({
   }
 
   const dirty = draft.min !== min || draft.sinceDate !== sinceDate || draft.untilDate !== untilDate;
-  const isDefault = min === DEFAULT_MIN_TEAM_MEMBERS && sinceDate === DEFAULT_SINCE_DATE && !untilDate;
+  const isDefault = min === DEFAULT_MIN_TEAM_MEMBERS && !sinceDate && !untilDate;
   const activePreset = SEASON_PRESETS.find((p) => p.since === sinceDate && p.until === untilDate)?.label;
 
   const inputCls =
@@ -87,7 +87,7 @@ export default function MatchFilterBar({
         </label>
 
         <label className="flex flex-col gap-1 text-xs text-[var(--muted)]">
-          起始日
+          起始日 (留空不限)
           <input
             type="date"
             value={draft.sinceDate}

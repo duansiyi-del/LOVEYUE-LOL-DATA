@@ -7,7 +7,9 @@
 //   until  只看这天 (含当天) 以前开局的对局, 默认不限
 
 export const DEFAULT_MIN_TEAM_MEMBERS = 3;
-export const DEFAULT_SINCE_DATE = "2026-09-01";
+// 默认不设时间下限 —— 拉取端本来就尽量全存, 展示端再卡一个日期只会让人以为
+// 数据没同步全. 想看某个赛段用上面的快捷按钮或自己填起止日.
+export const DEFAULT_SINCE_DATE = "";
 
 // 赛段快捷选项. 2026 年三赛段随版本切换, 全球统一 (含国服):
 //   S1 26.1~26.8   2026-01-08 ~ 04-28
@@ -24,7 +26,7 @@ export const SEASON_PRESETS: { label: string; since: string; until: string }[] =
 
 export type DisplayFilters = {
   min: number;
-  sinceDate: string; // YYYY-MM-DD
+  sinceDate: string; // YYYY-MM-DD 或 "" (不限)
   untilDate: string; // YYYY-MM-DD 或 "" (不限)
   sinceMs: number; // UTC ms, 北京时间当天 00:00
   untilMs: number | null; // UTC ms, 截止日次日 00:00 (不含); null 不限
@@ -49,7 +51,7 @@ export function parseFilters(sp: { min?: string; since?: string; until?: string 
     min,
     sinceDate,
     untilDate,
-    sinceMs: dateToMs(sinceDate),
+    sinceMs: sinceDate ? dateToMs(sinceDate) : 0,
     untilMs: untilDate ? dateToMs(untilDate) + 24 * 60 * 60 * 1000 : null,
   };
 }
@@ -59,6 +61,6 @@ export type FilterInput = { min: number; sinceDate: string; untilDate: string };
 /** 把筛选参数写进 URLSearchParams, 默认值不写, 保持链接干净. */
 export function applyFilterParams(params: URLSearchParams, f: FilterInput) {
   if (f.min !== DEFAULT_MIN_TEAM_MEMBERS) params.set("min", String(f.min));
-  if (f.sinceDate !== DEFAULT_SINCE_DATE) params.set("since", f.sinceDate);
+  if (f.sinceDate) params.set("since", f.sinceDate);
   if (f.untilDate) params.set("until", f.untilDate);
 }

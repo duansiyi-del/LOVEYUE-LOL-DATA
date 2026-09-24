@@ -20,7 +20,7 @@ param(
   [string]$SiteUrl = "https://www.loveyue.xyz",
   # vercel.app 国内直连不通时填本机代理, 例如 "http://127.0.0.1:7890"; 绑了域名后留空
   [string]$Proxy = "",
-  # 往回翻多少场. 首次回填可以调大, 例如 -MaxScan 200
+  # 往回翻多少场. 客户端本地历史有上限, 翻到头会自动停, 填大了不会出错
   [int]$MaxScan = 60,
   # 忽略「网站已有」, 所有对局重新拉一遍并覆盖 (加了新字段时用)
   [switch]$RefreshAll
@@ -128,6 +128,8 @@ try {
   # 列表接口每次最多给 20 条, 而且只返回登录者自己那一行, 所以拿到 id 之后还要
   # 逐局调详情才有十个人的数据.
   $newIds = New-Object System.Collections.ArrayList
+  $seen = 0
+  $oldestMs = 0
   $beg = 0
   while ($beg -lt $MaxScan) {
     $end = [Math]::Min($beg + 19, $MaxScan - 1)
@@ -138,12 +140,19 @@ try {
     if (-not $games -or $games.Count -eq 0) { break }
     foreach ($g in $games) {
       $gid = [string]$g.gameId
+      $seen++
+      $ms = [double]$g.gameCreation
+      if ($ms -gt 0 -and ($oldestMs -eq 0 -or $ms -lt $oldestMs)) { $oldestMs = $ms }
       if ($gid -and -not $known.ContainsKey($gid)) { [void]$newIds.Add($gid) }
     }
     if ($games.Count -lt ($end - $beg + 1)) { break }
     $beg = $end + 1
   }
   $newIds = $newIds | Select-Object -Unique
+  $oldestTxt = if ($oldestMs -gt 0) {
+    ([DateTimeOffset]::FromUnixTimeMilliseconds([long]$oldestMs)).LocalDateTime.ToString("yyyy-MM-dd")
+  } else { "?" }
+  Log "客户端历史翻了 $seen 场, 最早到 $oldestTxt"
   if (-not $newIds -or $newIds.Count -eq 0) { Log "ok: 没有新对局"; exit 0 }
   Log "发现 $($newIds.Count) 场待同步"
 

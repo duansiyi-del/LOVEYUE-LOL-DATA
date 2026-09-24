@@ -74,7 +74,7 @@ export default async function MatchesPage({
           <MatchFilterBar min={filters.min} sinceDate={filters.sinceDate} untilDate={filters.untilDate} />
         </Suspense>
         <p className="mt-2 text-center text-xs text-[var(--muted)]">
-          当前: 同一方至少 {filters.min} 名成员 · {filters.sinceDate} 至 {filters.untilDate || "现在"} · 共 {total} 场
+          当前: 同一方至少 {filters.min} 名成员 · {filters.sinceDate || "最早"} 至 {filters.untilDate || "现在"} · 共 {total} 场
         </p>
       </div>
 
