@@ -133,6 +133,10 @@ try {
     }
   }
 
+  # SGP 那一轮处理过的对局 id. 下面本地接口那一轮要避开它们, 见 "5." 里的说明.
+  # 放在 SGP 段之前定义, 这样 SGP 没跑时它也存在, 下面不用判空.
+  $sentIds = @{}
+
   # ---- 3.5 先试 SGP: 本机直接拉腾讯服务端的战绩 ----
   # 为什么要有这一段: 客户端本地那个战绩接口【每人只给最近 20 场, 而且忽略翻页
   # 参数】—— 2026-09-24 八个成员挨个试过, 全是 20 场, 换写法、一次要 100 条都一样.
@@ -202,7 +206,6 @@ try {
       $sgpUp = 0
       $sgpPartial = 0
       $sgpBad = ""
-      $sentIds = @{}
 
       # 分批发给网站: 一次发太多会超过函数的请求体上限, 20 场一批是稳的.
       $upBatch = New-Object System.Collections.ArrayList
@@ -405,7 +408,17 @@ try {
         $gotForThis++
         $ms = [double]$g.gameCreation
         if ($ms -gt 0 -and ($oldestMs -eq 0 -or $ms -lt $oldestMs)) { $oldestMs = $ms }
-        if ($gid -and -not $known.ContainsKey($gid)) { [void]$newIds.Add($gid) }
+        # ⚠ 绕开 SGP 那一轮已经处理过的对局.
+        # 本地接口这条路【推不出可靠的分路】: 它没有 teamPosition, 只有很脏的
+        # lane/role, 线上实测一局标出四个打野、没有上单. SGP 有 teamPosition,
+        # 拉回来是标准的 2/2/2/2/2. 两轮都跑的话, 后跑的本地接口会把 SGP 刚写好的
+        # 对局整条覆盖掉 —— 09/25 那批就是这么被写坏的 (死亡时长全是 0, 因为本地
+        # 接口根本没有这个字段, 一眼就能认出来是哪条路写的).
+        # 本地接口这一轮的价值只剩"补自己不在场、SGP 拿不到的那些局", 所以只处理
+        # SGP 没碰过的.
+        if ($gid -and -not $known.ContainsKey($gid) -and -not $sentIds.ContainsKey($gid)) {
+          [void]$newIds.Add($gid)
+        }
       }
       if ($got -lt ($end - $beg + 1)) { break }
       $beg = $end + 1
