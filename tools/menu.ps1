@@ -83,6 +83,7 @@ while ($true) {
   Write-Host "  [5] 设置 / 清除代理"
   Write-Host "  [6] 查看完整日志"
   Write-Host "  [7] 排查工具（探测接口，出问题时用）"
+  Write-Host "  [8] 重刷全部对局（把已存的旧数据用 SGP 盖一遍，修数据用，很慢）"
   Write-Host "  [0] 退出"
   Write-Host ""
   $c = Read-Host "选一个"
@@ -132,6 +133,16 @@ while ($true) {
       $probe = Join-Path $here "probe_endpoints.ps1"
       if (Test-Path $probe) { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $probe }
       else { Write-Host "`n找不到 probe_endpoints.ps1，它应该和这个文件放在一起。" -ForegroundColor Yellow; Read-Host "`n按回车回菜单" }
+    }
+    "8" {
+      # -RefreshAll: 忽略"网站已有", 把 SGP 看到的对局全部重传一遍覆盖.
+      # 用途是修已经写坏的历史数据 (比如早先走客户端本地接口存的那批, 分路是错的、
+      # 死亡时长之类的字段是空的). 平时不要用, 它每次都要把全部对局重传.
+      Write-Host ""
+      Write-Host "会把已经存过的对局全部重新拉一遍并覆盖，一千多场大概十几分钟。" -ForegroundColor Yellow
+      $yn = Read-Host "确定吗？(y/n)"
+      if ($yn -eq "y") { Run-Sync -extra @("-MaxScan", "1000", "-RefreshAll") }
+      Read-Host "`n按回车回菜单"
     }
     "0" { exit 0 }
     default { }
