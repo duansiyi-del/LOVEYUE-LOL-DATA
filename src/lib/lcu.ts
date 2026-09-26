@@ -273,6 +273,25 @@ export function buildGameRecordFromLcu(g: LcuGame): GameRecord | null {
     };
   });
 
+  // 分路自检: 一边的五个人必须正好是上单/打野/中单/下路/辅助各一个.
+  //
+  // 为什么需要这一步: 客户端本地接口没有 teamPosition (Riot 那个去重过的最终分路),
+  // 只有 timeline 里的 lane/role, 而这两个字段本身就很脏 —— 实测线上出现过一局里
+  // 四个打野、一个上单. SGP 那条路有 teamPosition, 拉回来的对局是标准的 2/2/2/2/2,
+  // 对照之下能确定问题出在推断而不是展示.
+  //
+  // 推不准时宁可【整边留空】也不要标错: 空的会被统计层过滤掉 (只认那五个值),
+  // 顶多是这局不进分路统计; 标错则会污染"各位置胜率"和榜单, 而且看不出来.
+  for (const teamId of new Set(players.map((p) => p.teamId))) {
+    const side = players.filter((p) => p.teamId === teamId);
+    if (side.length !== 5) continue;
+    const got = side.map((p) => p.position);
+    const ok = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"].every(
+      (want) => got.filter((x) => x === want).length === 1
+    );
+    if (!ok) for (const p of side) p.position = "";
+  }
+
   // 同一边最多有几名车队成员
   const counts: Record<number, number> = {};
   for (const p of players) {
