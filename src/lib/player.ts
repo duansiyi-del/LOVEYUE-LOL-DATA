@@ -303,3 +303,309 @@ export async function championLearning(filter: MatchFilter, member: string): Pro
     return [];
   }
 }
+
+// ---- 单英雄专项: 值不值得练 + 有没有进步 ----------------------------------
+
+export type GameRow = {
+  gameId: string;
+  ms: number;
+  win: boolean;
+  position: string;
+  champion: string;
+  championId: number;
+  score: number | null;
+  kills: number;
+  deaths: number;
+  assists: number;
+  cs: number;
+  gold: number;
+  durationMin: number;
+  /** 我方五人总击杀, 算参团率的分母 */
+  teamKills: number;
+  /** 对位 (同局对面同位置) 的经济 / 补刀; 没有分路的局是 null */
+  oppGold: number | null;
+  oppCs: number | null;
+};
+
+/**
+ * 一个人的逐场行, 带参团率分母和对位数据. 单英雄分析全从这份结果在 JS 里算.
+ *
+ * 为什么一次取全部而不是只取那个英雄: "同期对照" 要他同一时间窗口内用【其他】
+ * 英雄的表现, 反正都要取; 一个人一年几百行, 一次取完比分两趟查省事也省连接.
+ *
+ * ⚠ team_kills 必须在【未过滤】的全表上算 (和 leaderboard 里参团率 278% 那个坑
+ * 是同一个): 分母是我方五个人的击杀, 不是只有车队成员的.
+ */
+export async function playerGameRows(filter: MatchFilter, member: string): Promise<GameRow[]> {
+  const [qa, qb, qc] = queueSlots(filter);
+  try {
+    const { rows } = await sql<{
+      game_id: string;
+      ms: string;
+      win: boolean;
+      position: string;
+      champion: string;
+      champion_id: number | null;
+      score: string | null;
+      kills: number;
+      deaths: number;
+      assists: number;
+      cs: number;
+      gold: number;
+      duration_min: string | null;
+      team_kills: string | null;
+      opp_gold: number | null;
+      opp_cs: number | null;
+    }>`
+      WITH team_kills AS (
+        SELECT game_id, team_id, SUM(kills) AS tk
+        FROM match_players
+        GROUP BY game_id, team_id
+      ),
+      mine AS (
+        SELECT mp.game_id, mp.team_id, mp.position, mp.champion, mp.champion_id, mp.win, mp.score,
+               mp.kills, mp.deaths, mp.assists, mp.cs, mp.gold,
+               m.duration_min, m.game_creation_ms
+        FROM match_players mp
+        JOIN matches m ON m.game_id = mp.game_id
+        WHERE mp.member = ${member}
+          AND mp.champion <> ''
+          AND m.roster_count >= ${filter.min}
+          AND m.game_creation_ms >= ${filter.sinceMs}
+          AND (${filter.untilMs}::bigint IS NULL OR m.game_creation_ms < ${filter.untilMs}::bigint)
+          AND m.duration_min >= 5
+          AND (
+            (${qa}::text IS NULL AND ${qb}::text IS NULL AND ${qc}::text IS NULL)
+            OR m.queue_name = ${qa}::text OR m.queue_name = ${qb}::text OR m.queue_name = ${qc}::text
+          )
+      )
+      SELECT mine.game_id, mine.game_creation_ms::text AS ms, mine.win, mine.position, mine.champion,
+             mine.champion_id, mine.score::text AS score, mine.kills, mine.deaths, mine.assists,
+             mine.cs, mine.gold, mine.duration_min::text AS duration_min,
+             tk.tk::text AS team_kills,
+             o.gold AS opp_gold, o.cs AS opp_cs
+      FROM mine
+      LEFT JOIN team_kills tk ON tk.game_id = mine.game_id AND tk.team_id = mine.team_id
+      LEFT JOIN match_players o
+        ON o.game_id = mine.game_id
+       AND o.team_id <> mine.team_id
+       AND o.position = mine.position
+       AND mine.position IN ('TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY')
+      ORDER BY mine.game_creation_ms ASC
+    `;
+    return rows.map((r) => ({
+      gameId: r.game_id,
+      ms: Number(r.ms),
+      win: r.win,
+      position: r.position,
+      champion: r.champion,
+      championId: Number(r.champion_id ?? 0),
+      score: r.score === null ? null : Number(r.score),
+      kills: Number(r.kills),
+      deaths: Number(r.deaths),
+      assists: Number(r.assists),
+      cs: Number(r.cs),
+      gold: Number(r.gold),
+      durationMin: Number(r.duration_min ?? 0),
+      teamKills: Number(r.team_kills ?? 0),
+      oppGold: r.opp_gold === null ? null : Number(r.opp_gold),
+      oppCs: r.opp_cs === null ? null : Number(r.opp_cs),
+    }));
+  } catch (err) {
+    console.error("[playerGameRows] failed", err);
+    return [];
+  }
+}
+
+export type MetricStat = { mean: number; se: number; n: number };
+
+export type MetricCompare = {
+  key: string;
+  label: string;
+  lowerIsBetter: boolean;
+  format: (v: number) => string;
+  a: MetricStat;
+  b: MetricStat;
+  /** b − a */
+  diff: number;
+  /** 两个均值之差能不能当结论: |diff| > 1.96 × 合并标准误 */
+  significant: boolean;
+};
+
+const METRICS: {
+  key: string;
+  label: string;
+  lowerIsBetter: boolean;
+  format: (v: number) => string;
+  of: (r: GameRow) => number | null;
+}[] = [
+  { key: "score", label: "评分", lowerIsBetter: false, format: (v) => v.toFixed(2), of: (r) => r.score },
+  { key: "deaths", label: "场均死亡", lowerIsBetter: true, format: (v) => v.toFixed(1), of: (r) => r.deaths },
+  {
+    key: "csPerMin",
+    label: "补刀/分",
+    lowerIsBetter: false,
+    format: (v) => v.toFixed(1),
+    of: (r) => (r.durationMin > 0 ? r.cs / r.durationMin : null),
+  },
+  {
+    key: "kp",
+    label: "参团率",
+    lowerIsBetter: false,
+    format: (v) => `${Math.round(v * 100)}%`,
+    of: (r) => (r.teamKills > 0 ? (r.kills + r.assists) / r.teamKills : null),
+  },
+  {
+    key: "goldDiff",
+    label: "对位经济差",
+    lowerIsBetter: false,
+    format: (v) => `${v >= 0 ? "+" : ""}${Math.round(v)}`,
+    of: (r) => (r.oppGold === null ? null : r.gold - r.oppGold),
+  },
+];
+
+function stat(values: number[]): MetricStat {
+  const n = values.length;
+  if (n === 0) return { mean: 0, se: Infinity, n: 0 };
+  const mean = values.reduce((s, v) => s + v, 0) / n;
+  if (n < 2) return { mean, se: Infinity, n };
+  const sd = Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1));
+  return { mean, se: sd / Math.sqrt(n), n };
+}
+
+function compare(
+  m: (typeof METRICS)[number],
+  rowsA: GameRow[],
+  rowsB: GameRow[]
+): MetricCompare {
+  const pick = (rows: GameRow[]) => rows.map(m.of).filter((v): v is number => v !== null && Number.isFinite(v));
+  const a = stat(pick(rowsA));
+  const b = stat(pick(rowsB));
+  const diff = b.mean - a.mean;
+  const seDiff = Math.sqrt(a.se ** 2 + b.se ** 2);
+  return {
+    key: m.key,
+    label: m.label,
+    lowerIsBetter: m.lowerIsBetter,
+    format: m.format,
+    a,
+    b,
+    diff,
+    significant: Number.isFinite(seDiff) && Math.abs(diff) > 1.96 * seDiff,
+  };
+}
+
+export type HalfCompare = MetricCompare & {
+  /** 他同期用【其他】英雄的前后变化; 没有对照数据时 null */
+  peerDiff: number | null;
+  verdict: "有进步" | "在退步" | "整体状态在变" | "看不出";
+};
+
+export type ChampionReport = {
+  champion: string;
+  championId: number;
+  games: number;
+  wins: number;
+  byPosition: { position: string; games: number }[];
+  /** 主位置占比不到 80%: 前后对比可能混进了位置变化 */
+  mixedPositions: boolean;
+  mainPosition: string;
+  // 值不值得练
+  otherGames: number;
+  otherWins: number;
+  vsOthers: MetricCompare[];
+  // 有没有进步
+  learning: { label: string; games: number; wins: number }[];
+  /** 场次不够 (少于 MIN_HALVES) 时为 null */
+  halves: HalfCompare[] | null;
+};
+
+export const MIN_CHAMPION_REPORT = 6;
+export const MIN_HALVES = 10;
+
+/**
+ * 单英雄专项分析. 全部在 JS 里从 playerGameRows 那份结果算.
+ *
+ * 两个问题分开答:
+ *   值不值得练 = 绝对水平: 他用这英雄 vs 他用其他英雄 (全期), 40 场足够答.
+ *   有没有进步 = 时间上的变化: 前半 vs 后半. 40 场只够抓住明显的跃迁, 小幅稳步
+ *                进步看不出来 —— 页面上要把这个说清楚, 别让人以为"没进步".
+ *
+ * 为什么不拿胜率当进步指标: 一场只有 1 bit, 40 场的区间宽 30 个百分点, 切两半
+ * 更宽. 评分 / 死亡 / 补刀 / 参团率 / 对位经济差是连续量, 同样样本信息量大得多;
+ * 评分还是同场十人归一化的, 天然扣掉了对手强度.
+ *
+ * 同期对照 (peerDiff): 光看"这英雄评分涨了"不行, 可能是他整个人最近状态好.
+ * 减掉他同一时间窗口内用其他英雄的变化, 剩下的才是这个英雄本身的长进.
+ */
+export function championReport(rows: GameRow[], champion: string): ChampionReport | null {
+  const mine = rows.filter((r) => r.champion === champion);
+  if (mine.length < MIN_CHAMPION_REPORT) return null;
+  const others = rows.filter((r) => r.champion !== champion);
+
+  const posCount = new Map<string, number>();
+  for (const r of mine) posCount.set(r.position || "—", (posCount.get(r.position || "—") ?? 0) + 1);
+  const byPosition = [...posCount.entries()]
+    .map(([position, games]) => ({ position, games }))
+    .sort((a, b) => b.games - a.games);
+  const mainPosition = byPosition[0]?.position ?? "";
+  const mixedPositions = (byPosition[0]?.games ?? 0) / mine.length < 0.8;
+
+  // 熟练度: 第几次玩这个英雄
+  const defs = [
+    { label: "前 5 场", lo: 1, hi: 5 },
+    { label: "第 6~10 场", lo: 6, hi: 10 },
+    { label: "第 11~20 场", lo: 11, hi: 20 },
+    { label: "第 21 场以后", lo: 21, hi: Infinity },
+  ];
+  const learning = defs.map((d) => ({ label: d.label, games: 0, wins: 0 }));
+  mine.forEach((r, i) => {
+    const n = i + 1;
+    const k = defs.findIndex((d) => n >= d.lo && n <= d.hi);
+    if (k < 0) return;
+    learning[k].games++;
+    if (r.win) learning[k].wins++;
+  });
+
+  // 前后对比 + 同期对照
+  let halves: HalfCompare[] | null = null;
+  if (mine.length >= MIN_HALVES) {
+    const mid = Math.floor(mine.length / 2);
+    const first = mine.slice(0, mid);
+    const second = mine.slice(mid);
+    // 同期 = 这个英雄第一场到最后一场之间; 分界点用同一个时刻, 两边才可比
+    const splitMs = second[0].ms;
+    const peerFirst = others.filter((r) => r.ms >= mine[0].ms && r.ms < splitMs);
+    const peerSecond = others.filter((r) => r.ms >= splitMs && r.ms <= mine[mine.length - 1].ms);
+
+    halves = METRICS.map((m) => {
+      const c = compare(m, first, second);
+      const peer = compare(m, peerFirst, peerSecond);
+      const peerDiff = peer.a.n >= 3 && peer.b.n >= 3 ? peer.diff : null;
+      const good = m.lowerIsBetter ? c.diff < 0 : c.diff > 0;
+      let verdict: HalfCompare["verdict"] = "看不出";
+      if (c.significant) {
+        // 其他英雄同期也朝同一个方向变了差不多的量 → 是他整个人在变, 不是这个英雄
+        const sameWay = peerDiff !== null && Math.sign(peerDiff) === Math.sign(c.diff);
+        if (sameWay && Math.abs(peerDiff!) >= Math.abs(c.diff) / 2) verdict = "整体状态在变";
+        else verdict = good ? "有进步" : "在退步";
+      }
+      return { ...c, peerDiff, verdict };
+    });
+  }
+
+  return {
+    champion,
+    championId: mine[0].championId,
+    games: mine.length,
+    wins: mine.filter((r) => r.win).length,
+    byPosition,
+    mixedPositions,
+    mainPosition,
+    otherGames: others.length,
+    otherWins: others.filter((r) => r.win).length,
+    vsOthers: METRICS.map((m) => compare(m, others, mine)),
+    learning: learning.filter((l) => l.games > 0),
+    halves,
+  };
+}

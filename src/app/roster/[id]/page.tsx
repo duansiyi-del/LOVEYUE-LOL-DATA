@@ -9,11 +9,16 @@ import TrendChart from "@/components/TrendChart";
 import RadarChart from "@/components/RadarChart";
 import { isDbConfigured } from "@/lib/db";
 import { memberMatchups, positionZh, teamGames } from "@/lib/draft";
-import { parseFilters } from "@/lib/filters";
+import { applyFilterParams, parseFilters } from "@/lib/filters";
+import { loadOpggBaseline } from "@/lib/opgg";
 import { formatMetric, leaderboard, METRICS_BY_POSITION, type LeaderRow } from "@/lib/leaderboard";
 import {
   championLearning,
+  championReport,
+  MIN_CHAMPION_REPORT,
+  MIN_HALVES,
   monthlyTrend,
+  playerGameRows,
   playerChampions,
   playerLosses,
   playerPositions,
@@ -63,7 +68,7 @@ export default async function PlayerPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ min?: string; since?: string; until?: string; queue?: string }>;
+  searchParams: Promise<{ min?: string; since?: string; until?: string; queue?: string; champ?: string }>;
 }) {
   const { id } = await params;
   const player = roster.find((x) => x.id === id);
@@ -76,7 +81,7 @@ export default async function PlayerPage({
   const alias = displayName(me);
   const dbReady = isDbConfigured();
 
-  const [overall, positions, champions, games, matchups, ratings, months, learning] = dbReady
+  const [overall, positions, champions, games, matchups, ratings, months, learning, gameRows] = dbReady
     ? await Promise.all([
         leaderboard(filters, "", "member"),
         playerPositions(filters, me),
@@ -86,8 +91,9 @@ export default async function PlayerPage({
         memberRatings(filters),
         monthlyTrend(filters, me),
         championLearning(filters, me),
+        playerGameRows(filters, me),
       ])
-    : [[] as LeaderRow[], [], [], [], [], [], [], []];
+    : [[] as LeaderRow[], [], [], [], [], [], [], [], []];
 
   const myRating = ratings.find((r) => r.member === me);
 
@@ -139,6 +145,38 @@ export default async function PlayerPage({
 
   const losses = playerLosses(games, me);
   const recent = recentGames(games, me, 12);
+
+  // ---- 单英雄专项 (?champ=) ----
+  // 只认他真的玩过的英雄, 防止 URL 里随便传个名字进来查库.
+  const selectedChamp = champions.some((c) => c.key === sp.champ) ? (sp.champ as string) : "";
+  const report = selectedChamp ? championReport(gameRows, selectedChamp) : null;
+  // OP.GG 大盘只在展开某个英雄时才读, 平时不碰那两张表
+  const opgg = report ? await loadOpggBaseline() : null;
+  const opggRow = report && opgg ? opgg.overall.get(`${report.championId}|${report.mainPosition}`) : undefined;
+  // win_rate 没在别处消费过, 单位没法从代码确认: 大于 1 就当百分数
+  const opggRate = opggRow ? (opggRow.winRate > 1 ? opggRow.winRate / 100 : opggRow.winRate) : null;
+
+  // 英雄行的链接: 保留当前筛选, 只换 champ; 再点同一个就收起
+  const champHref = (name: string) => {
+    const params = new URLSearchParams();
+    applyFilterParams(params, filters);
+    if (name && name !== selectedChamp) params.set("champ", name);
+    const qs = params.toString();
+    return `/roster/${player.id}${qs ? `?${qs}` : ""}#champ`;
+  };
+  // 差值带正负号. 对位经济差的 format 自带符号, 别再叠一个 "+" 上去
+  const signed = (fmt: (v: number) => string, v: number) => {
+    const t = fmt(v);
+    return v >= 0 && !t.startsWith("+") && !t.startsWith("-") ? `+${t}` : t;
+  };
+  const verdictOf = (c: { diff: number; significant: boolean; lowerIsBetter: boolean }) =>
+    !c.significant ? "看不出" : (c.lowerIsBetter ? c.diff < 0 : c.diff > 0) ? "明显更好" : "明显更差";
+  const verdictClass = (v: string) =>
+    v === "明显更好" || v === "有进步"
+      ? "text-[var(--status-good)]"
+      : v === "明显更差" || v === "在退步"
+        ? "text-[var(--status-critical)]"
+        : "text-[var(--muted)]";
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-16">
@@ -255,15 +293,20 @@ export default async function PlayerPage({
             </h2>
             <p className="mb-3 text-xs text-[var(--muted)]">
               按场次排序，{MIN_CHAMPION_GAMES} 场以下的只在末尾列名字，不给胜率——两三场的胜率是噪音。
+              点一个英雄看专项分析（{MIN_CHAMPION_REPORT} 场起）。
             </p>
             {champRows.length ? (
               <div className="grid gap-2 sm:grid-cols-2">
                 {champRows.map((c) => {
                   const r = c.wins / c.games;
                   return (
-                    <div
+                    <Link
                       key={c.key}
-                      className="flex items-center gap-3 rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] px-3 py-2"
+                      href={champHref(c.key)}
+                      scroll={false}
+                      className={`flex items-center gap-3 rounded-sm border bg-[var(--bg-panel)] px-3 py-2 transition hover:border-[var(--gold)]/60 ${
+                        c.key === selectedChamp ? "border-[var(--gold)]" : "border-[var(--border)]"
+                      }`}
                     >
                       <span className="w-20 shrink-0 truncate text-sm">{c.key}</span>
                       <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--muted)]/15">
@@ -278,7 +321,7 @@ export default async function PlayerPage({
                       <span className="w-24 shrink-0 text-right text-xs tabular-nums text-[var(--muted)]">
                         {c.games} 场 · {pct(r)}
                       </span>
-                    </div>
+                    </Link>
                   );
                 })}
               </div>
@@ -291,6 +334,149 @@ export default async function PlayerPage({
               </p>
             ) : null}
           </section>
+
+          {/* ---- 单英雄专项 ---- */}
+          {selectedChamp && !report ? (
+            <p id="champ" className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-4 text-sm text-[var(--muted)]">
+              {selectedChamp} 不到 {MIN_CHAMPION_REPORT} 场，做不了专项分析。
+            </p>
+          ) : null}
+          {report ? (
+            <section id="champ" className="rounded-sm border border-[var(--gold)]/40 bg-[var(--bg-panel)] p-5">
+              <div className="mb-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <h2 className="font-display text-xl font-bold">{report.champion}</h2>
+                <span className="text-sm tabular-nums text-[var(--muted)]">
+                  {report.games} 场 · {report.wins}胜{report.games - report.wins}负 ·{" "}
+                  {pct(report.wins / report.games)}（{pct(wilson(report.wins, report.games).lo)}~
+                  {pct(wilson(report.wins, report.games).hi)}）
+                </span>
+                <span className="text-xs text-[var(--muted)]">
+                  {report.byPosition.map((b) => `${positionZh(b.position)} ${b.games}`).join(" · ")}
+                </span>
+              </div>
+              {report.mixedPositions ? (
+                <p className="mb-3 text-xs text-[var(--status-warning,#e7b655)]">
+                  ⚠ 这个英雄他在多个位置用过，下面的前后对比可能混进了位置变化。
+                </p>
+              ) : null}
+
+              {/* A. 值不值得练 */}
+              <h3 className="font-display mb-1 mt-4 text-sm font-semibold uppercase tracking-wider text-[var(--gold)]">
+                值不值得练：绝对水平
+              </h3>
+              <p className="mb-3 text-xs text-[var(--muted)]">
+                他用这个英雄 vs 他用别的英雄，全期。{opggRate !== null ? "第三行是 OP.GG 大盘同位置胜率。" : ""}
+              </p>
+              <IntervalChart
+                rows={[
+                  rateRow(`用${report.champion}`, report.wins, report.games, wilson(report.otherWins, report.otherGames)),
+                  rateRow("用其他英雄", report.otherWins, report.otherGames, wilson(report.wins, report.games)),
+                  ...(opggRate !== null
+                    ? [
+                        {
+                          label: "OP.GG 大盘",
+                          note: `${(opggRow!.play / 10000).toFixed(1)} 万场`,
+                          rate: opggRate,
+                          lo: opggRate,
+                          hi: opggRate,
+                          inconclusive: true,
+                        },
+                      ]
+                    : []),
+                ]}
+                baseline={totalGames ? totalWins / totalGames : 0}
+                baselineLabel="他自己"
+              />
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                    <tr className="border-b border-[var(--border)]">
+                      <th className="px-2 py-1.5 text-left">指标</th>
+                      <th className="px-2 py-1.5 text-right">其他英雄</th>
+                      <th className="px-2 py-1.5 text-right">{report.champion}</th>
+                      <th className="px-2 py-1.5 text-right">差</th>
+                      <th className="px-2 py-1.5 text-right">结论</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.vsOthers
+                      .filter((c) => c.a.n > 0 && c.b.n > 0)
+                      .map((c) => {
+                        const v = verdictOf(c);
+                        return (
+                          <tr key={c.key} className="border-b border-[var(--border)]/50 last:border-0">
+                            <td className="px-2 py-1.5">
+                              {c.label}
+                              {c.lowerIsBetter ? <span className="text-[10px] text-[var(--muted)]">（越低越好）</span> : null}
+                            </td>
+                            <td className="px-2 py-1.5 text-right tabular-nums text-[var(--muted)]">{c.format(c.a.mean)}</td>
+                            <td className="px-2 py-1.5 text-right tabular-nums">{c.format(c.b.mean)}</td>
+                            <td className="px-2 py-1.5 text-right tabular-nums">{signed(c.format, c.diff)}</td>
+                            <td className={`px-2 py-1.5 text-right ${verdictClass(v)}`}>{v}</td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* B. 有没有进步 */}
+              <h3 className="font-display mb-1 mt-6 text-sm font-semibold uppercase tracking-wider text-[var(--gold)]">
+                有没有进步：时间上的变化
+              </h3>
+              <p className="mb-3 text-xs text-[var(--muted)]">
+                先看第几次玩这个英雄时的胜率（生手期过了没），再看前一半场次和后一半的表现指标。
+                「其他英雄同期」是他同一时间段用别的英雄的变化——如果也朝同一个方向变了差不多的量，那是他整个人在变，不是这个英雄。
+              </p>
+              {report.learning.length >= 2 ? (
+                <IntervalChart
+                  rows={report.learning.map((l) => rateRow(l.label, l.wins, l.games, myCi))}
+                  baseline={totalGames ? totalWins / totalGames : 0}
+                  baselineLabel="他自己"
+                />
+              ) : null}
+              {report.halves ? (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                      <tr className="border-b border-[var(--border)]">
+                        <th className="px-2 py-1.5 text-left">指标</th>
+                        <th className="px-2 py-1.5 text-right">前半（{report.halves[0].a.n} 场）</th>
+                        <th className="px-2 py-1.5 text-right">后半（{report.halves[0].b.n} 场）</th>
+                        <th className="px-2 py-1.5 text-right">变化</th>
+                        <th className="px-2 py-1.5 text-right">其他英雄同期</th>
+                        <th className="px-2 py-1.5 text-right">结论</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.halves
+                        .filter((c) => c.a.n > 0 && c.b.n > 0)
+                        .map((c) => (
+                          <tr key={c.key} className="border-b border-[var(--border)]/50 last:border-0">
+                            <td className="px-2 py-1.5">{c.label}</td>
+                            <td className="px-2 py-1.5 text-right tabular-nums text-[var(--muted)]">{c.format(c.a.mean)}</td>
+                            <td className="px-2 py-1.5 text-right tabular-nums">{c.format(c.b.mean)}</td>
+                            <td className="px-2 py-1.5 text-right tabular-nums">{signed(c.format, c.diff)}</td>
+                            <td className="px-2 py-1.5 text-right tabular-nums text-[var(--muted)]">
+                              {c.peerDiff === null ? "—" : signed(c.format, c.peerDiff)}
+                            </td>
+                            <td className={`px-2 py-1.5 text-right ${verdictClass(c.verdict)}`}>{c.verdict}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                  <p className="mt-2 text-[11px] text-[var(--muted)]">
+                    「看不出」不等于没进步：{report.games} 场切两半，大概只能抓住评分 1 分上下、死亡 1.5 次上下的跃迁，
+                    小幅稳步进步在这个样本量下看不出来。
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-3 text-xs text-[var(--muted)]">
+                  不到 {MIN_HALVES} 场，前后对比做不了；再攒几场。
+                </p>
+              )}
+            </section>
+          ) : null}
 
           {/* ---- 英雄熟练度 ---- */}
           {learning.length >= 2 ? (
