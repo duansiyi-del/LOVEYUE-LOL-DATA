@@ -7,6 +7,36 @@
 # 日志: %LOCALAPPDATA%\loveyue-sync\sync.log
 
 $ErrorActionPreference = "Stop"
+
+# 关掉这个控制台窗口的「快速编辑模式」.
+#
+# 为什么: 默认开着的时候, 在窗口里点一下就进入选择状态, Windows 会把正在写输出的
+# 进程【挂起】, 要按回车/Esc 才放行. 表现就是"同步明明在跑, 进度却不刷新, 一按
+# 回车哗啦全出来" —— 很容易被当成程序卡死.
+#
+# 只改【当前这个控制台实例】的输入模式, 不写注册表、不动系统设置, 窗口关了就没了.
+# 失败了也无所谓, 顶多还是要按回车, 所以整段包在 try 里静默处理.
+try {
+  if (-not ("Loveyue.ConsoleMode" -as [type])) {
+    Add-Type -Namespace Loveyue -Name ConsoleMode -MemberDefinition @'
+[DllImport("kernel32.dll", SetLastError=true)]
+public static extern IntPtr GetStdHandle(int nStdHandle);
+[DllImport("kernel32.dll", SetLastError=true)]
+public static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
+[DllImport("kernel32.dll", SetLastError=true)]
+public static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
+'@
+  }
+  $stdIn = [Loveyue.ConsoleMode]::GetStdHandle(-10)   # STD_INPUT_HANDLE
+  $mode = [uint32]0
+  if ([Loveyue.ConsoleMode]::GetConsoleMode($stdIn, [ref]$mode)) {
+    # 0x0040 = ENABLE_QUICK_EDIT_MODE (要关掉的)
+    # 0x0080 = ENABLE_EXTENDED_FLAGS  (改快速编辑这一位时必须一起带上, 否则不生效)
+    $newMode = ($mode -band (-bnot [uint32]0x0040)) -bor [uint32]0x0080
+    [void][Loveyue.ConsoleMode]::SetConsoleMode($stdIn, $newMode)
+  }
+} catch { }
+
 $here = $PSScriptRoot
 $dataDir = Join-Path $env:LOCALAPPDATA "loveyue-sync"
 New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
