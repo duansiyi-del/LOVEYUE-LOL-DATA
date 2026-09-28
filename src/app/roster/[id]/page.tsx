@@ -290,88 +290,61 @@ export default async function PlayerPage({
             </section>
           ) : null}
 
-          {/* ---- 对线情况 ---- */}
+          {/* ---- 对线情况: 只用 Riot 的对线期统计, 整场数据测不了对线 ---- */}
           {lanes.length ? (
             <section>
               <h2 className="font-display mb-1 text-sm font-semibold uppercase tracking-wider text-[var(--gold)]">
                 对线情况
               </h2>
               <p className="mb-3 text-xs text-[var(--muted)]">
-                对位 = 同局对面同位置的人。左边四列来自 Riot 的<b>对线期</b>统计，才是真正的对线。
-                右边三列是<b>整场</b>口径：会被中后期滚雪球放大，而且不同位置滚雪球的能力天差地别（下路容易拉开，上单不容易），
-                所以<b>整场几列不要跨位置横比</b>，只能同一个人同一个位置前后看。赢线率 = 整场经济压过对位的比例。
-                死亡占比 = 我的死亡 ÷ 全队死亡，五人均摊 20%——对位经济差落后但这一格低，说明对面是从队友身上吃饱的，不是自己送的。
+                全部来自 Riot 的对线期统计：只统计对线阶段，只和同局对面同位置的人比。整场经济差、死亡这些不在这里——线上均势、后面对面去杀队友，整场数字一样会变差，那不是对线的问题。
+                即便如此，打野压力和阵容仍会影响对线数据，看的是倾向，不是判决。
               </p>
               {noLaningData ? (
-                <p className="mb-3 rounded-sm border border-[var(--status-warning,#e7b655)]/50 bg-[var(--bg-panel)] px-3 py-2 text-xs text-[var(--status-warning,#e7b655)]">
-                  左边对线期四列还没有数据：这些对局入库时还没存这几个字段。跑一次同步工具菜单里的「[8] 重刷全部对局」就有了。
+                <p className="rounded-sm border border-[var(--status-warning,#e7b655)]/50 bg-[var(--bg-panel)] px-3 py-2 text-xs text-[var(--status-warning,#e7b655)]">
+                  还没有数据：这些对局入库时还没存对线期字段。跑一次同步工具菜单里的「[8] 重刷全部对局」就有了。
                 </p>
-              ) : null}
-              <div className="overflow-x-auto rounded-sm border border-[var(--border)] bg-[var(--bg-panel)]">
-                <table className="w-full text-sm">
-                  <thead className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
-                    {/* 两行表头: 先分"对线期 / 整场"两组, 再列指标. 分组线画在这, 免得读者把
-                        整场经济差当成对线数据, 或者拿下路的整场经济差去比上单的. */}
-                    <tr className="border-b border-[var(--border)]/50">
-                      <th colSpan={2} />
-                      <th colSpan={4} className="px-3 pt-2 text-center text-[var(--gold)]">
-                        对线期
-                      </th>
-                      <th colSpan={4} className="border-l border-[var(--border)] px-3 pt-2 text-center">
-                        整场（不跨位置比）
-                      </th>
-                    </tr>
-                    <tr className="border-b border-[var(--border)]">
-                      <th className="px-3 py-2 text-left">位置</th>
-                      <th className="px-3 py-2 text-right">场次</th>
-                      <th className="px-3 py-2 text-right">10 分钟补刀差</th>
-                      <th className="px-3 py-2 text-right">对线期优势</th>
-                      <th className="px-3 py-2 text-right">单杀/场</th>
-                      <th className="px-3 py-2 text-right">镀层/场</th>
-                      <th className="border-l border-[var(--border)] px-3 py-2 text-right">赢线率</th>
-                      <th className="px-3 py-2 text-right">对位经济差</th>
-                      <th className="px-3 py-2 text-right">对位补刀差</th>
-                      <th className="px-3 py-2 text-right">死亡占比</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lanes.map((l) => {
-                      const ci = wilson(l.laneWins, l.games);
-                      const d = (m: { mean: number; n: number }, f: (v: number) => string) =>
-                        m.n === 0 ? "—" : f(m.mean);
-                      const tone = (m: { mean: number; n: number }) =>
-                        m.n === 0 ? "text-[var(--muted)]" : m.mean > 0 ? "text-[var(--status-good)]" : m.mean < 0 ? "text-[var(--status-critical)]" : "";
-                      const sgn = (v: number, digits = 0) => `${v >= 0 ? "+" : ""}${v.toFixed(digits)}`;
-                      return (
-                        <tr key={l.position} className="border-b border-[var(--border)]/50 last:border-0">
-                          <td className="px-3 py-2">{positionZh(l.position)}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{l.games}</td>
-                          <td className={`px-3 py-2 text-right tabular-nums ${tone(l.cs10Diff)}`}>{d(l.cs10Diff, (v) => sgn(v, 1))}</td>
-                          <td className={`px-3 py-2 text-right tabular-nums ${tone(l.laningAdv)}`}>{d(l.laningAdv, (v) => sgn(v))}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{d(l.soloKills, (v) => v.toFixed(2))}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{d(l.plates, (v) => v.toFixed(2))}</td>
-                          <td className="border-l border-[var(--border)] px-3 py-2 text-right tabular-nums">
-                            {pct(l.laneWins / l.games)}
-                            <span className="ml-1 text-[10px] text-[var(--muted)]">
-                              {pct(ci.lo)}~{pct(ci.hi)}
-                            </span>
-                          </td>
-                          <td className={`px-3 py-2 text-right tabular-nums ${tone(l.goldDiff)}`}>{d(l.goldDiff, (v) => sgn(v))}</td>
-                          <td className={`px-3 py-2 text-right tabular-nums ${tone(l.csDiff)}`}>{d(l.csDiff, (v) => sgn(v, 1))}</td>
-                          {/* 死亡占比: 高于 20% 标红 (我死得比均摊多), 低于标绿 */}
-                          <td
-                            className={`px-3 py-2 text-right tabular-nums ${
-                              l.deathShare.n === 0 ? "" : l.deathShare.mean > 0.24 ? "text-[var(--status-critical)]" : l.deathShare.mean < 0.16 ? "text-[var(--status-good)]" : ""
-                            }`}
-                          >
-                            {d(l.deathShare, (v) => `${Math.round(v * 100)}%`)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              ) : (
+                <div className="overflow-x-auto rounded-sm border border-[var(--border)] bg-[var(--bg-panel)]">
+                  <table className="w-full text-sm">
+                    <thead className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                      <tr className="border-b border-[var(--border)]">
+                        <th className="px-3 py-2 text-left">位置</th>
+                        <th className="px-3 py-2 text-right">场次</th>
+                        <th className="px-3 py-2 text-right">10 分钟补刀差</th>
+                        <th className="px-3 py-2 text-right">对线期经济经验优势</th>
+                        <th className="px-3 py-2 text-right">最大补刀领先</th>
+                        <th className="px-3 py-2 text-right">最大等级领先</th>
+                        <th className="px-3 py-2 text-right">单杀/场</th>
+                        <th className="px-3 py-2 text-right">镀层/场</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lanes
+                        .filter((l) => l.cs10Diff.n > 0 || l.laningAdv.n > 0)
+                        .map((l) => {
+                          const n = Math.max(l.cs10Diff.n, l.laningAdv.n, l.maxCsAdv.n, l.soloKills.n, l.plates.n);
+                          const d = (m: { mean: number; n: number }, f: (v: number) => string) => (m.n === 0 ? "—" : f(m.mean));
+                          const tone = (m: { mean: number; n: number }) =>
+                            m.n === 0 ? "text-[var(--muted)]" : m.mean > 0 ? "text-[var(--status-good)]" : m.mean < 0 ? "text-[var(--status-critical)]" : "";
+                          const sgn = (v: number, digits = 0) => `${v >= 0 ? "+" : ""}${v.toFixed(digits)}`;
+                          return (
+                            <tr key={l.position} className="border-b border-[var(--border)]/50 last:border-0">
+                              <td className="px-3 py-2">{positionZh(l.position)}</td>
+                              <td className="px-3 py-2 text-right tabular-nums">{n}</td>
+                              <td className={`px-3 py-2 text-right tabular-nums ${tone(l.cs10Diff)}`}>{d(l.cs10Diff, (v) => sgn(v, 1))}</td>
+                              <td className={`px-3 py-2 text-right tabular-nums ${tone(l.laningAdv)}`}>{d(l.laningAdv, (v) => sgn(v))}</td>
+                              <td className="px-3 py-2 text-right tabular-nums">{d(l.maxCsAdv, (v) => v.toFixed(1))}</td>
+                              <td className="px-3 py-2 text-right tabular-nums">{d(l.maxLevelLead, (v) => v.toFixed(1))}</td>
+                              <td className="px-3 py-2 text-right tabular-nums">{d(l.soloKills, (v) => v.toFixed(2))}</td>
+                              <td className="px-3 py-2 text-right tabular-nums">{d(l.plates, (v) => v.toFixed(2))}</td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </section>
           ) : null}
 

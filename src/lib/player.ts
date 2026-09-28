@@ -722,6 +722,8 @@ export type LaneStat = {
   // 对线期 (Riot challenges), n = 0 表示这些局里没有这份数据
   cs10Diff: MetricStat;
   laningAdv: MetricStat;
+  maxCsAdv: MetricStat;
+  maxLevelLead: MetricStat;
   soloKills: MetricStat;
   plates: MetricStat;
 };
@@ -731,12 +733,15 @@ export const MIN_LANE_GAMES = 5;
 /**
  * 每个位置的对线表现. "对位" = 同局对面同位置的人.
  *
- * 两层口径混在一张表里, 要分清:
- *   整场口径 (对位经济差 / 补刀差 / 等级差 / 赢线率): 现有数据就有, 但会被中后期团战
- *     和滚雪球放大 —— 一条线 10 分钟时打平, 团战赢了整场经济差也能到 +2000.
- *   对线期口径 (10 分钟补刀差 / 对线期经济经验优势 / 单杀 / 镀层): 才是真正的"对线",
- *     来自 Riot 的 challenges, 只有 SGP 拉的局有, 老对局要重刷一次才有.
- * 用户最初想看的就是后者 ("10 分钟补刀差"), 前者是过渡, 表头上要写明.
+ * 页面上【只展示对线期口径】(10 分钟补刀差 / 对线期经济经验优势 / 最大补刀·等级领先 /
+ * 单杀 / 镀层), 它们来自 Riot 的 challenges, 只统计对线阶段、只和对位比.
+ *
+ * 整场口径 (对位经济差 / 补刀差 / 赢线率) 这里仍然算着, 但页面上不再当"对线"展示:
+ * 用户两次指出它没道理 —— 下路天然滚雪球、上单是孤岛, 不同位置不是一个量; 线上均势
+ * 之后对面去杀队友, 整场经济差照样拉开, 和这条线打没打好无关; 阵容本身差也会全线
+ * 难发挥. 试过用"死亡占比"补救, 那分的是"谁送的", 还是整场的账, 同样测不了对线.
+ * 结论: 整场数据里没有任何一列能测对线, 别再从里面硬挤. 留着只是给英雄专项表当
+ * "表现指标"用, 那边明确标的是整场.
  */
 export function laningReport(rows: GameRow[]): LaneStat[] {
   const LANES = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
@@ -759,6 +764,8 @@ export function laningReport(rows: GameRow[]): LaneStat[] {
         pick((r) => (r.laneMinions10 === null || r.oppLaneMinions10 === null ? null : r.laneMinions10 - r.oppLaneMinions10))
       ),
       laningAdv: stat(pick((r) => r.laningGoldExpAdv)),
+      maxCsAdv: stat(pick((r) => r.maxCsAdvLaneOpp)),
+      maxLevelLead: stat(pick((r) => r.maxLevelLeadLaneOpp)),
       soloKills: stat(pick((r) => r.soloKills)),
       plates: stat(pick((r) => r.turretPlates)),
     });
