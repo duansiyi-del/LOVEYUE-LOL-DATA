@@ -23,8 +23,16 @@ const POSITION_LABEL: Record<string, string> = {
 
 function formatTime(ms: number) {
   const d = new Date(ms);
+  const yearOf = (x: Date) => x.toLocaleString("en-US", { timeZone: "Asia/Shanghai", year: "numeric" });
+  // 不是今年的对局要把年份带上.
+  //
+  // 历史已经超过一年, 只写"月/日"的话最后一页的 09/27 和第一页的 09/27 长得一模
+  // 一样 —— 排查分页的时候真的把人绕进去过, 以为翻到最后一页又跳回了第一页.
+  // 今年的仍然只写月/日, 免得整列变长.
+  const showYear = yearOf(d) !== yearOf(new Date());
   return d.toLocaleString("zh-CN", {
     timeZone: "Asia/Shanghai",
+    ...(showYear ? { year: "numeric" as const } : {}),
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
