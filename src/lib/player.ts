@@ -322,6 +322,8 @@ export type GameRow = {
   durationMin: number;
   /** 我方五人总击杀, 算参团率的分母 */
   teamKills: number;
+  /** 我方五人总死亡, 算死亡占比的分母 */
+  teamDeaths: number;
   /** 对位 (同局对面同位置) 的经济 / 补刀; 没有分路的局是 null */
   oppGold: number | null;
   oppCs: number | null;
@@ -368,6 +370,7 @@ export async function playerGameRows(filter: MatchFilter, member: string): Promi
       gold: number;
       duration_min: string | null;
       team_kills: string | null;
+      team_deaths: string | null;
       opp_gold: number | null;
       opp_cs: number | null;
       champ_level: number;
@@ -383,7 +386,7 @@ export async function playerGameRows(filter: MatchFilter, member: string): Promi
       solo_kills: number | null;
     }>`
       WITH team_kills AS (
-        SELECT game_id, team_id, SUM(kills) AS tk
+        SELECT game_id, team_id, SUM(kills) AS tk, SUM(deaths) AS td
         FROM match_players
         GROUP BY game_id, team_id
       ),
@@ -409,7 +412,7 @@ export async function playerGameRows(filter: MatchFilter, member: string): Promi
       SELECT mine.game_id, mine.game_creation_ms::text AS ms, mine.win, mine.position, mine.champion,
              mine.champion_id, mine.score::text AS score, mine.kills, mine.deaths, mine.assists,
              mine.cs, mine.gold, mine.duration_min::text AS duration_min,
-             tk.tk::text AS team_kills,
+             tk.tk::text AS team_kills, tk.td::text AS team_deaths,
              o.gold AS opp_gold, o.cs AS opp_cs, o.champ_level AS opp_level,
              o.lane_minions_10 AS opp_lane_minions_10,
              mine.champ_level, mine.first_blood, mine.lane_minions_10,
@@ -441,6 +444,7 @@ export async function playerGameRows(filter: MatchFilter, member: string): Promi
       gold: Number(r.gold),
       durationMin: Number(r.duration_min ?? 0),
       teamKills: Number(r.team_kills ?? 0),
+      teamDeaths: Number(r.team_deaths ?? 0),
       oppGold: r.opp_gold === null ? null : Number(r.opp_gold),
       oppCs: r.opp_cs === null ? null : Number(r.opp_cs),
       champLevel: Number(r.champ_level ?? 0),
@@ -485,6 +489,15 @@ const METRICS: {
 }[] = [
   { key: "score", label: "评分", lowerIsBetter: false, format: (v) => v.toFixed(2), of: (r) => r.score },
   { key: "deaths", label: "场均死亡", lowerIsBetter: true, format: (v) => v.toFixed(1), of: (r) => r.deaths },
+  // 我的死亡占全队死亡的比例, 五人均摊 20%. 用来和对位经济差对照: 对面领先但我
+  // 死亡占比低 → 对面是从队友身上吃饱的, 不是我送的 (用户原话: "很多时候死的不是我").
+  {
+    key: "deathShare",
+    label: "死亡占比",
+    lowerIsBetter: true,
+    format: (v) => `${Math.round(v * 100)}%`,
+    of: (r) => (r.teamDeaths > 0 ? r.deaths / r.teamDeaths : null),
+  },
   {
     key: "csPerMin",
     label: "补刀/分",
@@ -704,6 +717,8 @@ export type LaneStat = {
   goldDiff: MetricStat;
   csDiff: MetricStat;
   levelDiff: MetricStat;
+  /** 我的死亡 / 全队死亡, 五人均摊 20% */
+  deathShare: MetricStat;
   // 对线期 (Riot challenges), n = 0 表示这些局里没有这份数据
   cs10Diff: MetricStat;
   laningAdv: MetricStat;
@@ -739,6 +754,7 @@ export function laningReport(rows: GameRow[]): LaneStat[] {
       goldDiff: stat(pick((r) => r.gold - (r.oppGold as number))),
       csDiff: stat(pick((r) => (r.oppCs === null ? null : r.cs - r.oppCs))),
       levelDiff: stat(pick((r) => (r.oppLevel === null ? null : r.champLevel - r.oppLevel))),
+      deathShare: stat(pick((r) => (r.teamDeaths > 0 ? r.deaths / r.teamDeaths : null))),
       cs10Diff: stat(
         pick((r) => (r.laneMinions10 === null || r.oppLaneMinions10 === null ? null : r.laneMinions10 - r.oppLaneMinions10))
       ),

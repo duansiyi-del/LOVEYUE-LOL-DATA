@@ -299,7 +299,8 @@ export default async function PlayerPage({
               <p className="mb-3 text-xs text-[var(--muted)]">
                 对位 = 同局对面同位置的人。左边四列来自 Riot 的<b>对线期</b>统计，才是真正的对线。
                 右边三列是<b>整场</b>口径：会被中后期滚雪球放大，而且不同位置滚雪球的能力天差地别（下路容易拉开，上单不容易），
-                所以<b>整场三列不要跨位置横比</b>，只能同一个人同一个位置前后看。赢线率 = 整场经济压过对位的比例。
+                所以<b>整场几列不要跨位置横比</b>，只能同一个人同一个位置前后看。赢线率 = 整场经济压过对位的比例。
+                死亡占比 = 我的死亡 ÷ 全队死亡，五人均摊 20%——对位经济差落后但这一格低，说明对面是从队友身上吃饱的，不是自己送的。
               </p>
               {noLaningData ? (
                 <p className="mb-3 rounded-sm border border-[var(--status-warning,#e7b655)]/50 bg-[var(--bg-panel)] px-3 py-2 text-xs text-[var(--status-warning,#e7b655)]">
@@ -316,7 +317,7 @@ export default async function PlayerPage({
                       <th colSpan={4} className="px-3 pt-2 text-center text-[var(--gold)]">
                         对线期
                       </th>
-                      <th colSpan={3} className="border-l border-[var(--border)] px-3 pt-2 text-center">
+                      <th colSpan={4} className="border-l border-[var(--border)] px-3 pt-2 text-center">
                         整场（不跨位置比）
                       </th>
                     </tr>
@@ -330,6 +331,7 @@ export default async function PlayerPage({
                       <th className="border-l border-[var(--border)] px-3 py-2 text-right">赢线率</th>
                       <th className="px-3 py-2 text-right">对位经济差</th>
                       <th className="px-3 py-2 text-right">对位补刀差</th>
+                      <th className="px-3 py-2 text-right">死亡占比</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -356,6 +358,14 @@ export default async function PlayerPage({
                           </td>
                           <td className={`px-3 py-2 text-right tabular-nums ${tone(l.goldDiff)}`}>{d(l.goldDiff, (v) => sgn(v))}</td>
                           <td className={`px-3 py-2 text-right tabular-nums ${tone(l.csDiff)}`}>{d(l.csDiff, (v) => sgn(v, 1))}</td>
+                          {/* 死亡占比: 高于 20% 标红 (我死得比均摊多), 低于标绿 */}
+                          <td
+                            className={`px-3 py-2 text-right tabular-nums ${
+                              l.deathShare.n === 0 ? "" : l.deathShare.mean > 0.24 ? "text-[var(--status-critical)]" : l.deathShare.mean < 0.16 ? "text-[var(--status-good)]" : ""
+                            }`}
+                          >
+                            {d(l.deathShare, (v) => `${Math.round(v * 100)}%`)}
+                          </td>
                         </tr>
                       );
                     })}
