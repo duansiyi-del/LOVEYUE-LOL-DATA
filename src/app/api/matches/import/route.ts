@@ -77,6 +77,9 @@ export async function POST(req: NextRequest) {
       newGames: newOnes.length,
       skippedNoRoster: noRoster,
       skippedUnparsed: unparsed,
+      // 这批里有几局带对线期字段. 用来验证数据源到底给不给 challenges 里那几个值:
+      // 上线前没有原始样本可查, 只能靠这个数回答.
+      withLaningData: records.filter((r) => r.players.some((pl) => pl.laneMinions10 !== null)).length,
       totalGames: known.size + newOnes.length,
     });
   } catch (err) {

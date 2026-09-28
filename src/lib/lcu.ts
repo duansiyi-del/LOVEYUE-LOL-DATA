@@ -270,6 +270,14 @@ export function buildGameRecordFromLcu(g: LcuGame): GameRecord | null {
       unitsHealed: num(s.totalUnitsHealed),
       totalCcDealt: num(s.totalTimeCrowdControlDealt),
       longestTimeSpentLiving: num(s.longestTimeSpentLiving),
+      // 客户端本地接口没有 challenges, 对线期字段一律 null (不是 0)
+      laneMinions10: null,
+      laningGoldExpAdv: null,
+      earlyLaningGoldExpAdv: null,
+      maxCsAdvLaneOpp: null,
+      maxLevelLeadLaneOpp: null,
+      turretPlates: null,
+      soloKills: null,
     };
   });
 

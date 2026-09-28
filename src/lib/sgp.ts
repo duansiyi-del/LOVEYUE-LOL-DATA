@@ -67,6 +67,13 @@ function pick(d: Json, ...keys: string[]): unknown {
   return undefined;
 }
 
+/** 和 num 的区别: 缺失 / 不是数字时给 null, 不给 0. 对线期字段用这个. */
+function numOrNull(x: unknown): number | null {
+  if (x === undefined || x === null || x === "") return null;
+  const n = typeof x === "number" ? x : parseFloat(String(x));
+  return Number.isFinite(n) ? n : null;
+}
+
 function num(x: unknown): number {
   const n = typeof x === "number" ? x : parseFloat(String(x ?? 0));
   return Number.isFinite(n) ? n : 0;
@@ -242,6 +249,16 @@ export type PlayerRow = {
   unitsHealed: number; // 治疗过的单位数 (含自己)
   totalCcDealt: number; // 控制总时长, 口径比 ccTime 宽
   longestTimeSpentLiving: number; // 最长存活时间 (秒)
+  // ---- 对线期 (来自 Riot 的 challenges 对象). 客户端本地接口没有, 一律 null. ----
+  // ⚠ 缺失存 null 而不是 0: "没这个字段" 和 "值是 0" 必须能区分, 否则 10 分钟补刀差
+  // 会被一堆假 0 拉平. 页面上按 null 判断"要不要提示重新同步".
+  laneMinions10: number | null; // 前 10 分钟补的兵 (laneMinionsFirst10Minutes)
+  laningGoldExpAdv: number | null; // 对线期经济+经验相对对位的优势 (laningPhaseGoldExpAdvantage)
+  earlyLaningGoldExpAdv: number | null; // 更早期的版本 (earlyLaningPhaseGoldExpAdvantage)
+  maxCsAdvLaneOpp: number | null; // 全场对对位的最大补刀领先 (maxCsAdvantageOnLaneOpponent)
+  maxLevelLeadLaneOpp: number | null; // 全场对对位的最大等级领先 (maxLevelLeadLaneOpponent)
+  turretPlates: number | null; // 拿到的镀层 (turretPlatesTaken)
+  soloKills: number | null; // 单杀 (soloKills)
 };
 
 export type TeamStats = {
@@ -339,6 +356,8 @@ export function buildGameRecord(g: Json): GameRecord {
 
   const players: PlayerRow[] = participants.map((p) => {
     const puuid = String(p.puuid ?? "");
+    // Riot 的 challenges 对象 (评分也是从它算的). 没有就当空对象, 下面全存 null.
+    const ch = ((p.challenges as Json) ?? {}) as Record<string, unknown>;
     const rating = ratings[puuid] ?? { score: null as unknown as number, award: "" };
     const champId = String(pick(p, "championId") ?? "");
     const name = pick(p, "riotIdGameName", "summonerName", "riotIdV2GameName");
@@ -420,6 +439,13 @@ export function buildGameRecord(g: Json): GameRecord {
       unitsHealed: num(p.totalUnitsHealed),
       totalCcDealt: num(p.totalTimeCrowdControlDealt),
       longestTimeSpentLiving: num(p.longestTimeSpentLiving),
+      laneMinions10: numOrNull(ch.laneMinionsFirst10Minutes),
+      laningGoldExpAdv: numOrNull(ch.laningPhaseGoldExpAdvantage),
+      earlyLaningGoldExpAdv: numOrNull(ch.earlyLaningPhaseGoldExpAdvantage),
+      maxCsAdvLaneOpp: numOrNull(ch.maxCsAdvantageOnLaneOpponent),
+      maxLevelLeadLaneOpp: numOrNull(ch.maxLevelLeadLaneOpponent),
+      turretPlates: numOrNull(ch.turretPlatesTaken),
+      soloKills: numOrNull(ch.soloKills),
     };
   });
 

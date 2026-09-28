@@ -1,7 +1,7 @@
 import "server-only";
 
 import { sql } from "@vercel/postgres";
-import { queueSlots, type MatchFilter } from "@/lib/db";
+import { ensureSchema, queueSlots, type MatchFilter } from "@/lib/db";
 import type { LossBucket, TeamGame } from "@/lib/draft";
 
 // 个人页的数据层.
@@ -325,6 +325,18 @@ export type GameRow = {
   /** 对位 (同局对面同位置) 的经济 / 补刀; 没有分路的局是 null */
   oppGold: number | null;
   oppCs: number | null;
+  champLevel: number;
+  oppLevel: number | null;
+  firstBlood: boolean;
+  // ---- 对线期 (Riot challenges). 客户端本地接口来的局全是 null ----
+  laneMinions10: number | null;
+  oppLaneMinions10: number | null;
+  laningGoldExpAdv: number | null;
+  earlyLaningGoldExpAdv: number | null;
+  maxCsAdvLaneOpp: number | null;
+  maxLevelLeadLaneOpp: number | null;
+  turretPlates: number | null;
+  soloKills: number | null;
 };
 
 /**
@@ -339,6 +351,8 @@ export type GameRow = {
 export async function playerGameRows(filter: MatchFilter, member: string): Promise<GameRow[]> {
   const [qa, qb, qc] = queueSlots(filter);
   try {
+    // 对线期那几列是后加的, 老库没有时整条查询会报错被吞成空数组 —— 读之前先补列
+    await ensureSchema();
     const { rows } = await sql<{
       game_id: string;
       ms: string;
@@ -356,6 +370,17 @@ export async function playerGameRows(filter: MatchFilter, member: string): Promi
       team_kills: string | null;
       opp_gold: number | null;
       opp_cs: number | null;
+      champ_level: number;
+      opp_level: number | null;
+      first_blood: boolean;
+      lane_minions_10: number | null;
+      opp_lane_minions_10: number | null;
+      laning_gold_exp_adv: string | null;
+      early_laning_gold_exp_adv: string | null;
+      max_cs_adv_lane_opp: string | null;
+      max_level_lead_lane_opp: number | null;
+      turret_plates: number | null;
+      solo_kills: number | null;
     }>`
       WITH team_kills AS (
         SELECT game_id, team_id, SUM(kills) AS tk
@@ -364,7 +389,9 @@ export async function playerGameRows(filter: MatchFilter, member: string): Promi
       ),
       mine AS (
         SELECT mp.game_id, mp.team_id, mp.position, mp.champion, mp.champion_id, mp.win, mp.score,
-               mp.kills, mp.deaths, mp.assists, mp.cs, mp.gold,
+               mp.kills, mp.deaths, mp.assists, mp.cs, mp.gold, mp.champ_level, mp.first_blood,
+               mp.lane_minions_10, mp.laning_gold_exp_adv, mp.early_laning_gold_exp_adv,
+               mp.max_cs_adv_lane_opp, mp.max_level_lead_lane_opp, mp.turret_plates, mp.solo_kills,
                m.duration_min, m.game_creation_ms
         FROM match_players mp
         JOIN matches m ON m.game_id = mp.game_id
@@ -383,7 +410,13 @@ export async function playerGameRows(filter: MatchFilter, member: string): Promi
              mine.champion_id, mine.score::text AS score, mine.kills, mine.deaths, mine.assists,
              mine.cs, mine.gold, mine.duration_min::text AS duration_min,
              tk.tk::text AS team_kills,
-             o.gold AS opp_gold, o.cs AS opp_cs
+             o.gold AS opp_gold, o.cs AS opp_cs, o.champ_level AS opp_level,
+             o.lane_minions_10 AS opp_lane_minions_10,
+             mine.champ_level, mine.first_blood, mine.lane_minions_10,
+             mine.laning_gold_exp_adv::text AS laning_gold_exp_adv,
+             mine.early_laning_gold_exp_adv::text AS early_laning_gold_exp_adv,
+             mine.max_cs_adv_lane_opp::text AS max_cs_adv_lane_opp,
+             mine.max_level_lead_lane_opp, mine.turret_plates, mine.solo_kills
       FROM mine
       LEFT JOIN team_kills tk ON tk.game_id = mine.game_id AND tk.team_id = mine.team_id
       LEFT JOIN match_players o
@@ -410,6 +443,17 @@ export async function playerGameRows(filter: MatchFilter, member: string): Promi
       teamKills: Number(r.team_kills ?? 0),
       oppGold: r.opp_gold === null ? null : Number(r.opp_gold),
       oppCs: r.opp_cs === null ? null : Number(r.opp_cs),
+      champLevel: Number(r.champ_level ?? 0),
+      oppLevel: r.opp_level === null ? null : Number(r.opp_level),
+      firstBlood: Boolean(r.first_blood),
+      laneMinions10: r.lane_minions_10 === null ? null : Number(r.lane_minions_10),
+      oppLaneMinions10: r.opp_lane_minions_10 === null ? null : Number(r.opp_lane_minions_10),
+      laningGoldExpAdv: r.laning_gold_exp_adv === null ? null : Number(r.laning_gold_exp_adv),
+      earlyLaningGoldExpAdv: r.early_laning_gold_exp_adv === null ? null : Number(r.early_laning_gold_exp_adv),
+      maxCsAdvLaneOpp: r.max_cs_adv_lane_opp === null ? null : Number(r.max_cs_adv_lane_opp),
+      maxLevelLeadLaneOpp: r.max_level_lead_lane_opp === null ? null : Number(r.max_level_lead_lane_opp),
+      turretPlates: r.turret_plates === null ? null : Number(r.turret_plates),
+      soloKills: r.solo_kills === null ? null : Number(r.solo_kills),
     }));
   } catch (err) {
     console.error("[playerGameRows] failed", err);
@@ -462,6 +506,30 @@ const METRICS: {
     format: (v) => `${v >= 0 ? "+" : ""}${Math.round(v)}`,
     of: (r) => (r.oppGold === null ? null : r.gold - r.oppGold),
   },
+  {
+    key: "csDiff",
+    label: "对位补刀差",
+    lowerIsBetter: false,
+    format: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`,
+    of: (r) => (r.oppCs === null ? null : r.cs - r.oppCs),
+  },
+  // 下面四个来自 Riot 的对线期统计; 客户端本地接口来的局是 null, compare() 会自动跳过
+  {
+    key: "cs10Diff",
+    label: "10 分钟补刀差",
+    lowerIsBetter: false,
+    format: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`,
+    of: (r) => (r.laneMinions10 === null || r.oppLaneMinions10 === null ? null : r.laneMinions10 - r.oppLaneMinions10),
+  },
+  {
+    key: "laningAdv",
+    label: "对线期经济经验优势",
+    lowerIsBetter: false,
+    format: (v) => `${v >= 0 ? "+" : ""}${Math.round(v)}`,
+    of: (r) => r.laningGoldExpAdv,
+  },
+  { key: "soloKills", label: "单杀/场", lowerIsBetter: false, format: (v) => v.toFixed(2), of: (r) => r.soloKills },
+  { key: "plates", label: "镀层/场", lowerIsBetter: false, format: (v) => v.toFixed(2), of: (r) => r.turretPlates },
 ];
 
 function stat(values: number[]): MetricStat {
@@ -622,4 +690,62 @@ export function championReport(rows: GameRow[], champion: string): ChampionRepor
     learning: learning.filter((l) => l.games > 0),
     halves,
   };
+}
+
+
+// ---- 对线情况 (个人页一节) --------------------------------------------
+
+export type LaneStat = {
+  position: string;
+  games: number;
+  /** 整场经济压过对位的局数 —— "赢线率" 的分子 */
+  laneWins: number;
+  firstBloods: number;
+  goldDiff: MetricStat;
+  csDiff: MetricStat;
+  levelDiff: MetricStat;
+  // 对线期 (Riot challenges), n = 0 表示这些局里没有这份数据
+  cs10Diff: MetricStat;
+  laningAdv: MetricStat;
+  soloKills: MetricStat;
+  plates: MetricStat;
+};
+
+export const MIN_LANE_GAMES = 5;
+
+/**
+ * 每个位置的对线表现. "对位" = 同局对面同位置的人.
+ *
+ * 两层口径混在一张表里, 要分清:
+ *   整场口径 (对位经济差 / 补刀差 / 等级差 / 赢线率): 现有数据就有, 但会被中后期团战
+ *     和滚雪球放大 —— 一条线 10 分钟时打平, 团战赢了整场经济差也能到 +2000.
+ *   对线期口径 (10 分钟补刀差 / 对线期经济经验优势 / 单杀 / 镀层): 才是真正的"对线",
+ *     来自 Riot 的 challenges, 只有 SGP 拉的局有, 老对局要重刷一次才有.
+ * 用户最初想看的就是后者 ("10 分钟补刀差"), 前者是过渡, 表头上要写明.
+ */
+export function laningReport(rows: GameRow[]): LaneStat[] {
+  const LANES = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
+  const out: LaneStat[] = [];
+  for (const position of LANES) {
+    const mine = rows.filter((r) => r.position === position && r.oppGold !== null);
+    if (mine.length < MIN_LANE_GAMES) continue;
+    const pick = (f: (r: GameRow) => number | null) =>
+      mine.map(f).filter((v): v is number => v !== null && Number.isFinite(v));
+    out.push({
+      position,
+      games: mine.length,
+      laneWins: mine.filter((r) => r.gold - (r.oppGold as number) > 0).length,
+      firstBloods: mine.filter((r) => r.firstBlood).length,
+      goldDiff: stat(pick((r) => r.gold - (r.oppGold as number))),
+      csDiff: stat(pick((r) => (r.oppCs === null ? null : r.cs - r.oppCs))),
+      levelDiff: stat(pick((r) => (r.oppLevel === null ? null : r.champLevel - r.oppLevel))),
+      cs10Diff: stat(
+        pick((r) => (r.laneMinions10 === null || r.oppLaneMinions10 === null ? null : r.laneMinions10 - r.oppLaneMinions10))
+      ),
+      laningAdv: stat(pick((r) => r.laningGoldExpAdv)),
+      soloKills: stat(pick((r) => r.soloKills)),
+      plates: stat(pick((r) => r.turretPlates)),
+    });
+  }
+  return out.sort((a, b) => b.games - a.games);
 }

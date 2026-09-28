@@ -54,6 +54,7 @@ const MATCH_PLAYER_COLUMNS = [
   "wards_killed", "champ_level", "items", "damage_self_mitigated", "killing_sprees",
   "largest_killing_spree", "objectives_stolen", "heals_on_teammates", "gold_spent", "time_spent_dead",
   "damage_to_objectives", "total_damage_dealt", "physical_damage_taken", "magic_damage_taken", "true_damage_taken", "jungle_enemy", "jungle_own", "turret_kills", "inhibitor_kills", "units_healed", "total_cc_dealt", "longest_time_living",
+  "lane_minions_10", "laning_gold_exp_adv", "early_laning_gold_exp_adv", "max_cs_adv_lane_opp", "max_level_lead_lane_opp", "turret_plates", "solo_kills",
 ] as const;
 
 function playerRowValues(gameId: string, p: GameRecord["players"][number]): unknown[] {
@@ -65,6 +66,7 @@ function playerRowValues(gameId: string, p: GameRecord["players"][number]): unkn
     p.wardsKilled, p.champLevel, p.items, p.damageSelfMitigated, p.killingSprees,
     p.largestKillingSpree, p.objectivesStolen, p.healsOnTeammates, p.goldSpent, p.timeSpentDead,
     p.damageToObjectives, p.totalDamageDealt, p.physicalDamageTaken, p.magicDamageTaken, p.trueDamageTaken, p.jungleEnemy, p.jungleOwn, p.turretKills, p.inhibitorKills, p.unitsHealed, p.totalCcDealt, p.longestTimeSpentLiving,
+    p.laneMinions10, p.laningGoldExpAdv, p.earlyLaningGoldExpAdv, p.maxCsAdvLaneOpp, p.maxLevelLeadLaneOpp, p.turretPlates, p.soloKills,
   ];
 }
 
@@ -149,6 +151,15 @@ export async function ensureSchema(): Promise<void> {
       ADD COLUMN IF NOT EXISTS units_healed          INTEGER,
       ADD COLUMN IF NOT EXISTS total_cc_dealt        INTEGER,
       ADD COLUMN IF NOT EXISTS longest_time_living   INTEGER`);
+    // 对线期字段 (Riot challenges). 老对局要跑一次 -RefreshAll 才有值; 之前入库的全是 NULL.
+    await client.query(`ALTER TABLE match_players
+      ADD COLUMN IF NOT EXISTS lane_minions_10           INTEGER,
+      ADD COLUMN IF NOT EXISTS laning_gold_exp_adv       NUMERIC,
+      ADD COLUMN IF NOT EXISTS early_laning_gold_exp_adv NUMERIC,
+      ADD COLUMN IF NOT EXISTS max_cs_adv_lane_opp       NUMERIC,
+      ADD COLUMN IF NOT EXISTS max_level_lead_lane_opp   INTEGER,
+      ADD COLUMN IF NOT EXISTS turret_plates             INTEGER,
+      ADD COLUMN IF NOT EXISTS solo_kills                INTEGER`);
     schemaPatched = true;
   } finally {
     client.release();

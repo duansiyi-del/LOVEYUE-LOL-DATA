@@ -228,7 +228,7 @@ try {
         try {
           $j = Get-Content $rr -Raw -Encoding UTF8 | ConvertFrom-Json
           $script:sgpNew += [int]$j.newGames
-          Log ("      上传一批: 收到 {0} 新增 {1}" -f $j.received, $j.newGames)
+          Log ("      上传一批: 收到 {0} 新增 {1} 带对线期字段 {2}" -f $j.received, $j.newGames, $j.withLaningData)
           # 解析不了的数量要盯着: SGP 的字段和客户端那套不一样, 如果转换有问题,
           # 表现就是"传上去了但一场都没入库", 有这个数就不用猜了.
           $script:sgpUnparsed += [int]$j.skippedUnparsed

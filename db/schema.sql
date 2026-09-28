@@ -72,6 +72,14 @@ CREATE TABLE IF NOT EXISTS match_players (
   units_healed          INTEGER,
   total_cc_dealt        INTEGER,
   longest_time_living   INTEGER,
+  -- 对线期 (Riot challenges). 客户端本地接口没有, 为 NULL
+  lane_minions_10           INTEGER,
+  laning_gold_exp_adv       NUMERIC,
+  early_laning_gold_exp_adv NUMERIC,
+  max_cs_adv_lane_opp       NUMERIC,
+  max_level_lead_lane_opp   INTEGER,
+  turret_plates             INTEGER,
+  solo_kills                INTEGER,
   PRIMARY KEY (game_id, puuid)
 );
 

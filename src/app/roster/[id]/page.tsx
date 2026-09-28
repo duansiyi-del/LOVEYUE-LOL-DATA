@@ -15,6 +15,7 @@ import { formatMetric, leaderboard, METRICS_BY_POSITION, type LeaderRow } from "
 import {
   championLearning,
   championReport,
+  laningReport,
   MIN_CHAMPION_REPORT,
   MIN_HALVES,
   monthlyTrend,
@@ -145,6 +146,9 @@ export default async function PlayerPage({
 
   const losses = playerLosses(games, me);
   const recent = recentGames(games, me, 12);
+  const lanes = laningReport(gameRows);
+  // 对线期字段一格都没有 → 提示要重刷 (客户端本地接口来的局没有这些字段)
+  const noLaningData = lanes.length > 0 && lanes.every((l) => l.cs10Diff.n === 0 && l.laningAdv.n === 0);
 
   // ---- 单英雄专项 (?champ=) ----
   // 只认他真的玩过的英雄, 防止 URL 里随便传个名字进来查库.
@@ -282,6 +286,71 @@ export default async function PlayerPage({
               </p>
               <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-4">
                 <IntervalChart rows={posRows} baseline={totalWins / totalGames} baselineLabel="他自己" />
+              </div>
+            </section>
+          ) : null}
+
+          {/* ---- 对线情况 ---- */}
+          {lanes.length ? (
+            <section>
+              <h2 className="font-display mb-1 text-sm font-semibold uppercase tracking-wider text-[var(--gold)]">
+                对线情况
+              </h2>
+              <p className="mb-3 text-xs text-[var(--muted)]">
+                对位 = 同局对面同位置的人。前四列是<b>整场</b>口径，会被中后期团战放大；后四列来自 Riot 的<b>对线期</b>统计，才是真正的对线。
+                赢线率 = 整场经济压过对位的比例。
+              </p>
+              {noLaningData ? (
+                <p className="mb-3 rounded-sm border border-[var(--status-warning,#e7b655)]/50 bg-[var(--bg-panel)] px-3 py-2 text-xs text-[var(--status-warning,#e7b655)]">
+                  对线期那四列还没有数据：这些对局入库时还没存这几个字段。跑一次同步工具菜单里的「[8] 重刷全部对局」就有了。
+                </p>
+              ) : null}
+              <div className="overflow-x-auto rounded-sm border border-[var(--border)] bg-[var(--bg-panel)]">
+                <table className="w-full text-sm">
+                  <thead className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                    <tr className="border-b border-[var(--border)]">
+                      <th className="px-3 py-2 text-left">位置</th>
+                      <th className="px-3 py-2 text-right">场次</th>
+                      <th className="px-3 py-2 text-right">赢线率</th>
+                      <th className="px-3 py-2 text-right">对位经济差</th>
+                      <th className="px-3 py-2 text-right">对位补刀差</th>
+                      <th className="px-3 py-2 text-right">对位等级差</th>
+                      <th className="px-3 py-2 text-right">10 分钟补刀差</th>
+                      <th className="px-3 py-2 text-right">对线期优势</th>
+                      <th className="px-3 py-2 text-right">单杀/场</th>
+                      <th className="px-3 py-2 text-right">镀层/场</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lanes.map((l) => {
+                      const ci = wilson(l.laneWins, l.games);
+                      const d = (m: { mean: number; n: number }, f: (v: number) => string) =>
+                        m.n === 0 ? "—" : f(m.mean);
+                      const tone = (m: { mean: number; n: number }) =>
+                        m.n === 0 ? "text-[var(--muted)]" : m.mean > 0 ? "text-[var(--status-good)]" : m.mean < 0 ? "text-[var(--status-critical)]" : "";
+                      const sgn = (v: number, digits = 0) => `${v >= 0 ? "+" : ""}${v.toFixed(digits)}`;
+                      return (
+                        <tr key={l.position} className="border-b border-[var(--border)]/50 last:border-0">
+                          <td className="px-3 py-2">{positionZh(l.position)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{l.games}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {pct(l.laneWins / l.games)}
+                            <span className="ml-1 text-[10px] text-[var(--muted)]">
+                              {pct(ci.lo)}~{pct(ci.hi)}
+                            </span>
+                          </td>
+                          <td className={`px-3 py-2 text-right tabular-nums ${tone(l.goldDiff)}`}>{d(l.goldDiff, (v) => sgn(v))}</td>
+                          <td className={`px-3 py-2 text-right tabular-nums ${tone(l.csDiff)}`}>{d(l.csDiff, (v) => sgn(v, 1))}</td>
+                          <td className={`px-3 py-2 text-right tabular-nums ${tone(l.levelDiff)}`}>{d(l.levelDiff, (v) => sgn(v, 1))}</td>
+                          <td className={`px-3 py-2 text-right tabular-nums ${tone(l.cs10Diff)}`}>{d(l.cs10Diff, (v) => sgn(v, 1))}</td>
+                          <td className={`px-3 py-2 text-right tabular-nums ${tone(l.laningAdv)}`}>{d(l.laningAdv, (v) => sgn(v))}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{d(l.soloKills, (v) => v.toFixed(2))}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{d(l.plates, (v) => v.toFixed(2))}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </section>
           ) : null}
