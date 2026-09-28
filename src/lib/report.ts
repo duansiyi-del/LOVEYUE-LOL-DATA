@@ -306,3 +306,98 @@ export async function ratingSanity(filter: MatchFilter): Promise<{ games: number
     return { games: 0, topOnWinner: 0 };
   }
 }
+
+// ---- 作息 / 节奏 -------------------------------------------------------
+// 以下三个都是纯 JS, 从 teamGames 那一份结果里算, 不再查库.
+
+/**
+ * 把对局切成「一场连打」(session): 按时间排序, 相邻两局间隔超过 GAP 就断开.
+ *
+ * 为什么不按自然日切: 开黑经常打到凌晨一两点, 按日期切会把同一晚劈成两半,
+ * 「打到第几局」就全错了. 用间隔判断和实际体感一致 —— 中间隔了三小时, 那就是
+ * 两摊, 不该算作连着打的第 N 局.
+ */
+const SESSION_GAP_MS = 3 * 60 * 60 * 1000;
+
+function toSessions(games: TeamGame[]): TeamGame[][] {
+  const sorted = [...games].sort((a, b) => a.gameCreationMs - b.gameCreationMs);
+  const out: TeamGame[][] = [];
+  let cur: TeamGame[] = [];
+  let prev = 0;
+  for (const g of sorted) {
+    if (cur.length && g.gameCreationMs - prev > SESSION_GAP_MS) {
+      out.push(cur);
+      cur = [];
+    }
+    cur.push(g);
+    prev = g.gameCreationMs;
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
+export type Bucketed = { label: string; games: number; wins: number };
+
+/** 当晚打到第几局的胜率. 6 局以上合并, 不然尾巴上全是两三场的噪音. */
+export function fatigueByIndex(games: TeamGame[]): Bucketed[] {
+  const acc = new Map<string, Bucketed>();
+  for (const s of toSessions(games)) {
+    s.forEach((g, i) => {
+      const label = i >= 5 ? "第 6 局及以后" : `第 ${i + 1} 局`;
+      const cur = acc.get(label) ?? { label, games: 0, wins: 0 };
+      cur.games++;
+      if (g.win) cur.wins++;
+      acc.set(label, cur);
+    });
+  }
+  const order = ["第 1 局", "第 2 局", "第 3 局", "第 4 局", "第 5 局", "第 6 局及以后"];
+  return order.map((l) => acc.get(l)).filter((x): x is Bucketed => Boolean(x));
+}
+
+/**
+ * 「刚输了几连」之后那一局的胜率.
+ *
+ * 只在同一场连打内部算 —— 隔了一觉起来的那局不该算"连败之后".
+ * 这是本页最可能直接改变行为的一个数: 如果连败两场之后胜率明显更低, 那就该散.
+ * ⚠ 依然是相关不是因果: 状态差的那一晚, 前面输和后面输可能都只是因为那晚状态差.
+ */
+export function afterLosses(games: TeamGame[]): Bucketed[] {
+  const acc = new Map<string, Bucketed>();
+  for (const s of toSessions(games)) {
+    let streak = 0;
+    for (const g of s) {
+      const label = streak === 0 ? "刚赢或首局" : streak === 1 ? "刚输 1 场" : "已连输 2 场以上";
+      const cur = acc.get(label) ?? { label, games: 0, wins: 0 };
+      cur.games++;
+      if (g.win) cur.wins++;
+      acc.set(label, cur);
+      streak = g.win ? 0 : streak + 1;
+    }
+  }
+  return ["刚赢或首局", "刚输 1 场", "已连输 2 场以上"]
+    .map((l) => acc.get(l))
+    .filter((x): x is Bucketed => Boolean(x));
+}
+
+/**
+ * 按游戏时长分段的胜率 —— 回答"我们是前期队还是后期队".
+ *
+ * 用途是定 BP 方向: 如果 30 分钟之后胜率断崖, 那就该优先拿速推和强开, 而不是
+ * 指望后期 carry. 分段边界按常见的节奏拐点取, 不做自适应 —— 自适应会让每次
+ * 打开看到的分段都不一样, 没法和上次比.
+ */
+export function paceByDuration(games: TeamGame[]): Bucketed[] {
+  const defs: { label: string; lo: number; hi: number }[] = [
+    { label: "20 分钟内", lo: 0, hi: 20 },
+    { label: "20~25 分钟", lo: 20, hi: 25 },
+    { label: "25~30 分钟", lo: 25, hi: 30 },
+    { label: "30~35 分钟", lo: 30, hi: 35 },
+    { label: "35 分钟以上", lo: 35, hi: Infinity },
+  ];
+  return defs
+    .map((d) => {
+      const hit = games.filter((g) => g.durationMin >= d.lo && g.durationMin < d.hi);
+      return { label: d.label, games: hit.length, wins: hit.filter((g) => g.win).length };
+    })
+    .filter((b) => b.games > 0);
+}

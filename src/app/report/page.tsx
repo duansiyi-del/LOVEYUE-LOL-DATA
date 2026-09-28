@@ -4,11 +4,14 @@ import { teamGames } from "@/lib/draft";
 import { parseFilters } from "@/lib/filters";
 import { displayName, roster } from "@/lib/roster";
 import {
+  afterLosses,
+  fatigueByIndex,
   memberPositions,
   memberRatings,
   objectiveSplits,
   overlaps,
   presenceEffects,
+  paceByDuration,
   ratingSanity,
   squadSplits,
   wilson,
@@ -71,6 +74,24 @@ export default async function ReportPage({
   const overallCi = wilson(wins, total);
   const avgMin = total ? games.reduce((s, g) => s + g.durationMin, 0) / total : 0;
   const squads = squadSplits(games);
+  const fatigue = fatigueByIndex(games);
+  const streaks = afterLosses(games);
+  const pace = paceByDuration(games);
+
+  // 三张图都是"某一组的胜率 vs 全队整体", 做法一样, 抽成一个函数.
+  const overallRate = total ? wins / total : 0;
+  const toRows = (bs: { label: string; games: number; wins: number }[]): IntervalRow[] =>
+    bs.map((b) => {
+      const ci = wilson(b.wins, b.games);
+      return {
+        label: b.label,
+        note: `${b.games} 场`,
+        rate: b.games ? b.wins / b.games : 0,
+        lo: ci.lo,
+        hi: ci.hi,
+        inconclusive: ci.lo <= overallRate && overallRate <= ci.hi,
+      };
+    });
   const presence = presenceEffects(
     games,
     roster.map((r) => r.nickname)
@@ -158,6 +179,51 @@ export default async function ReportPage({
               />
             </div>
           </section>
+
+          {fatigue.length >= 3 ? (
+            <section>
+              <h2 className="font-display mb-1 text-sm font-semibold uppercase tracking-wider text-[var(--gold)]">
+                打到第几局开始掉
+              </h2>
+              <p className="mb-3 text-xs text-[var(--muted)]">
+                同一晚连着打的第几局。中间隔了三小时以上就算另一摊，不按自然日切——开黑常打到凌晨，
+                按日期切会把同一晚劈成两半。
+              </p>
+              <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-4">
+                <IntervalChart rows={toRows(fatigue)} baseline={overallRate} baselineLabel="全队" />
+              </div>
+            </section>
+          ) : null}
+
+          {streaks.length >= 2 ? (
+            <section>
+              <h2 className="font-display mb-1 text-sm font-semibold uppercase tracking-wider text-[var(--gold)]">
+                连败之后还能不能打
+              </h2>
+              <p className="mb-3 text-xs text-[var(--muted)]">
+                只在同一晚内部算——睡一觉起来那局不算「连败之后」。
+                ⚠ 相关不是因果：状态差的那一晚，前面输和后面输可能都只是因为那晚状态差。
+              </p>
+              <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-4">
+                <IntervalChart rows={toRows(streaks)} baseline={overallRate} baselineLabel="全队" />
+              </div>
+            </section>
+          ) : null}
+
+          {pace.length >= 3 ? (
+            <section>
+              <h2 className="font-display mb-1 text-sm font-semibold uppercase tracking-wider text-[var(--gold)]">
+                我们是前期队还是后期队
+              </h2>
+              <p className="mb-3 text-xs text-[var(--muted)]">
+                按这局打了多久分段看胜率。如果长局胜率明显低，BP 就该优先拿速推和强开，
+                而不是指望后期 carry。
+              </p>
+              <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-4">
+                <IntervalChart rows={toRows(pace)} baseline={overallRate} baselineLabel="全队" />
+              </div>
+            </section>
+          ) : null}
 
           <section>
             <h2 className="font-display mb-1 text-sm font-semibold uppercase tracking-wider text-[var(--gold)]">

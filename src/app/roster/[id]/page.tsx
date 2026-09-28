@@ -5,12 +5,15 @@ import { Suspense } from "react";
 
 import MatchFilterBar from "@/components/MatchFilterBar";
 import IntervalChart, { type IntervalRow } from "@/components/IntervalChart";
+import TrendChart from "@/components/TrendChart";
 import RadarChart from "@/components/RadarChart";
 import { isDbConfigured } from "@/lib/db";
 import { memberMatchups, positionZh, teamGames } from "@/lib/draft";
 import { parseFilters } from "@/lib/filters";
 import { formatMetric, leaderboard, METRICS_BY_POSITION, type LeaderRow } from "@/lib/leaderboard";
 import {
+  championLearning,
+  monthlyTrend,
   playerChampions,
   playerLosses,
   playerPositions,
@@ -73,7 +76,7 @@ export default async function PlayerPage({
   const alias = displayName(me);
   const dbReady = isDbConfigured();
 
-  const [overall, positions, champions, games, matchups, ratings] = dbReady
+  const [overall, positions, champions, games, matchups, ratings, months, learning] = dbReady
     ? await Promise.all([
         leaderboard(filters, "", "member"),
         playerPositions(filters, me),
@@ -81,8 +84,10 @@ export default async function PlayerPage({
         teamGames(filters),
         memberMatchups(filters),
         memberRatings(filters),
+        monthlyTrend(filters, me),
+        championLearning(filters, me),
       ])
-    : [[] as LeaderRow[], [], [], [], [], []];
+    : [[] as LeaderRow[], [], [], [], [], [], [], []];
 
   const myRating = ratings.find((r) => r.member === me);
 
@@ -286,6 +291,68 @@ export default async function PlayerPage({
               </p>
             ) : null}
           </section>
+
+          {/* ---- 英雄熟练度 ---- */}
+          {learning.length >= 2 ? (
+            <section>
+              <h2 className="font-display mb-1 text-sm font-semibold uppercase tracking-wider text-[var(--gold)]">
+                生手期有多贵
+              </h2>
+              <p className="mb-3 text-xs text-[var(--muted)]">
+                把每个英雄按时间排序，看「第几次玩这个英雄」时的胜率，再把所有英雄叠在一起。
+                差距明显就说明排位里别拿新英雄试。
+                ⚠ 粗看：能玩到 20 场以上的英雄，本来就是他擅长的那几个。
+              </p>
+              <div className="rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-4">
+                <IntervalChart
+                  rows={learning.map((l) => rateRow(l.label, l.wins, l.games, myCi))}
+                  baseline={totalGames ? totalWins / totalGames : 0}
+                  baselineLabel="他自己"
+                />
+              </div>
+            </section>
+          ) : null}
+
+          {/* ---- 月度走势 ---- */}
+          {months.length >= 3 ? (
+            <section>
+              <h2 className="font-display mb-1 text-sm font-semibold uppercase tracking-wider text-[var(--gold)]">
+                在进步还是退步
+              </h2>
+              <p className="mb-3 text-xs text-[var(--muted)]">
+                按月看。空心点是那个月场次太少（不到 5 场），别当真。
+                胜率和评分量纲不同，分两张画——叠成双轴图可以靠调刻度摆出任意想要的「关系」。
+              </p>
+              <div className="space-y-4 rounded-sm border border-[var(--border)] bg-[var(--bg-panel)] p-4">
+                <div>
+                  <p className="mb-1 text-xs text-[var(--muted)]">胜率</p>
+                  <TrendChart
+                    points={months.map((m) => ({
+                      label: m.month,
+                      value: m.games ? m.wins / m.games : null,
+                      n: m.games,
+                    }))}
+                    min={0}
+                    max={1}
+                    format={(v) => `${Math.round(v * 100)}%`}
+                    baseline={totalGames ? totalWins / totalGames : undefined}
+                    baselineLabel="全期"
+                  />
+                </div>
+                <div>
+                  <p className="mb-1 text-xs text-[var(--muted)]">平均评分</p>
+                  <TrendChart
+                    points={months.map((m) => ({ label: m.month, value: m.avgScore, n: m.games }))}
+                    min={0}
+                    max={10}
+                    format={(v) => v.toFixed(1)}
+                    baseline={5}
+                    baselineLabel="场内均分 5"
+                  />
+                </div>
+              </div>
+            </section>
+          ) : null}
 
           {/* ---- 队友红黑榜 ---- */}
           <section>

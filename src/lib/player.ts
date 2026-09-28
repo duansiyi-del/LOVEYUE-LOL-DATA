@@ -197,3 +197,109 @@ export function recentGames(games: TeamGame[], member: string, limit = 10): Rece
       };
     });
 }
+
+// ---- 成长趋势 / 英雄熟练度 --------------------------------------------
+
+export type MonthPoint = { month: string; games: number; wins: number; avgScore: number | null };
+
+/**
+ * 按月的场次 / 胜率 / 平均评分 —— 回答"他在进步还是退步".
+ *
+ * 月份按【北京时间】切: 库里存的是 UTC 毫秒, 直接按 UTC 分组会把凌晨那几局算到
+ * 上个月去, 而开黑恰恰经常打到凌晨. to_timestamp 之后转成 Asia/Shanghai 再截断.
+ *
+ * 场次太少的月份照样返回, 由展示层灰显 —— 这里不替页面决定什么算"够".
+ */
+export async function monthlyTrend(filter: MatchFilter, member: string): Promise<MonthPoint[]> {
+  const [qa, qb, qc] = queueSlots(filter);
+  try {
+    const { rows } = await sql<{ month: string; games: string; wins: string; avg_score: string | null }>`
+      SELECT to_char(
+               date_trunc('month', to_timestamp(m.game_creation_ms / 1000.0) AT TIME ZONE 'Asia/Shanghai'),
+               'YYYY-MM'
+             ) AS month,
+             COUNT(*)::text AS games,
+             SUM(CASE WHEN mp.win THEN 1 ELSE 0 END)::text AS wins,
+             AVG(mp.score)::text AS avg_score
+      FROM match_players mp
+      JOIN matches m ON m.game_id = mp.game_id
+      WHERE mp.member = ${member}
+        AND m.roster_count >= ${filter.min}
+        AND m.game_creation_ms >= ${filter.sinceMs}
+        AND (${filter.untilMs}::bigint IS NULL OR m.game_creation_ms < ${filter.untilMs}::bigint)
+        AND m.duration_min >= 5
+        AND (
+          (${qa}::text IS NULL AND ${qb}::text IS NULL AND ${qc}::text IS NULL)
+          OR m.queue_name = ${qa}::text OR m.queue_name = ${qb}::text OR m.queue_name = ${qc}::text
+        )
+      GROUP BY 1
+      ORDER BY 1
+    `;
+    return rows.map((r) => ({
+      month: r.month,
+      games: Number(r.games),
+      wins: Number(r.wins),
+      avgScore: r.avg_score === null ? null : Number(r.avg_score),
+    }));
+  } catch (err) {
+    console.error("[monthlyTrend] failed", err);
+    return [];
+  }
+}
+
+export type LearningPoint = { label: string; games: number; wins: number };
+
+/**
+ * 英雄熟练度曲线: 把每个英雄按时间排序, 看"第几次玩这个英雄"时的胜率, 再把所有
+ * 英雄叠在一起.
+ *
+ * 回答的是"还在学 vs 已经练成了": 如果前 5 场和 20 场以后没差别, 那说明练不练
+ * 没区别 (可能是英雄本身简单, 也可能是他根本没在练); 如果差很多, 那生手期的
+ * 代价是真的, 排位里别拿新英雄试.
+ *
+ * ⚠ 叠在一起看会混进"他本来就擅长的英雄玩得多"这个偏差 —— 玩到 20 场以上的
+ * 英雄本来就是他打得好的那几个. 所以这里只当粗看, 页面上要写明.
+ */
+export async function championLearning(filter: MatchFilter, member: string): Promise<LearningPoint[]> {
+  const [qa, qb, qc] = queueSlots(filter);
+  try {
+    const { rows } = await sql<{ champion: string; win: boolean; ms: string }>`
+      SELECT mp.champion, mp.win, m.game_creation_ms::text AS ms
+      FROM match_players mp
+      JOIN matches m ON m.game_id = mp.game_id
+      WHERE mp.member = ${member}
+        AND mp.champion <> ''
+        AND m.roster_count >= ${filter.min}
+        AND m.game_creation_ms >= ${filter.sinceMs}
+        AND (${filter.untilMs}::bigint IS NULL OR m.game_creation_ms < ${filter.untilMs}::bigint)
+        AND m.duration_min >= 5
+        AND (
+          (${qa}::text IS NULL AND ${qb}::text IS NULL AND ${qc}::text IS NULL)
+          OR m.queue_name = ${qa}::text OR m.queue_name = ${qb}::text OR m.queue_name = ${qc}::text
+        )
+      ORDER BY m.game_creation_ms ASC
+    `;
+    // 「第几次玩」在 JS 里数: SQL 的窗口函数也行, 但这一层数据量很小 (一个人一年
+    // 几百行), 放 JS 里改起来方便, 也和其他派生统计的做法一致.
+    const seen = new Map<string, number>();
+    const defs = [
+      { label: "前 5 场", lo: 1, hi: 5 },
+      { label: "第 6~10 场", lo: 6, hi: 10 },
+      { label: "第 11~20 场", lo: 11, hi: 20 },
+      { label: "第 21 场以后", lo: 21, hi: Infinity },
+    ];
+    const acc = defs.map((d) => ({ label: d.label, games: 0, wins: 0 }));
+    for (const r of rows) {
+      const n = (seen.get(r.champion) ?? 0) + 1;
+      seen.set(r.champion, n);
+      const i = defs.findIndex((d) => n >= d.lo && n <= d.hi);
+      if (i < 0) continue;
+      acc[i].games++;
+      if (r.win) acc[i].wins++;
+    }
+    return acc.filter((a) => a.games > 0);
+  } catch (err) {
+    console.error("[championLearning] failed", err);
+    return [];
+  }
+}
