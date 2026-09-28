@@ -510,9 +510,11 @@ export type ChampionReport = {
   /** 主位置占比不到 80%: 前后对比可能混进了位置变化 */
   mixedPositions: boolean;
   mainPosition: string;
-  // 值不值得练
+  // 值不值得练. 对照组是他用其他英雄打【同位置】的局 (有分路时)
   otherGames: number;
   otherWins: number;
+  /** 对照组限定了位置 (mainPosition 是五个正经分路之一) */
+  othersSamePosition: boolean;
   vsOthers: MetricCompare[];
   // 有没有进步
   learning: { label: string; games: number; wins: number }[];
@@ -541,7 +543,6 @@ export const MIN_HALVES = 10;
 export function championReport(rows: GameRow[], champion: string): ChampionReport | null {
   const mine = rows.filter((r) => r.champion === champion);
   if (mine.length < MIN_CHAMPION_REPORT) return null;
-  const others = rows.filter((r) => r.champion !== champion);
 
   const posCount = new Map<string, number>();
   for (const r of mine) posCount.set(r.position || "—", (posCount.get(r.position || "—") ?? 0) + 1);
@@ -550,6 +551,18 @@ export function championReport(rows: GameRow[], champion: string): ChampionRepor
     .sort((a, b) => b.games - a.games);
   const mainPosition = byPosition[0]?.position ?? "";
   const mixedPositions = (byPosition[0]?.games ?? 0) / mine.length < 0.8;
+
+  // 对照组 = 他用其他英雄打【同一个位置】的局.
+  //
+  // 上线后拿真数据一看就露馅了: 花哥的奥拉夫全是上单, 而他"其他英雄"里辅助占
+  // 大头 —— 于是补刀/分 +2.0 "明显更好"、参团率 -7% "明显更差", 全是上单和辅助
+  // 的位置差异, 和奥拉夫这个英雄毫无关系. 同期对照 (peerDiff) 也被同样污染.
+  // 没有分路的局 (大乱斗等) mainPosition 是 "—", 那就退回不限位置.
+  const LANES = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
+  const samePos = LANES.includes(mainPosition);
+  const others = rows.filter(
+    (r) => r.champion !== champion && (!samePos || r.position === mainPosition)
+  );
 
   // 熟练度: 第几次玩这个英雄
   const defs = [
@@ -604,6 +617,7 @@ export function championReport(rows: GameRow[], champion: string): ChampionRepor
     mainPosition,
     otherGames: others.length,
     otherWins: others.filter((r) => r.win).length,
+    othersSamePosition: samePos,
     vsOthers: METRICS.map((m) => compare(m, others, mine)),
     learning: learning.filter((l) => l.games > 0),
     halves,

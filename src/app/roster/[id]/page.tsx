@@ -365,12 +365,19 @@ export default async function PlayerPage({
                 值不值得练：绝对水平
               </h3>
               <p className="mb-3 text-xs text-[var(--muted)]">
-                他用这个英雄 vs 他用别的英雄，全期。{opggRate !== null ? "第三行是 OP.GG 大盘同位置胜率。" : ""}
+                他用这个英雄 vs 他用别的英雄
+                {report.othersSamePosition ? `（只比他同样打${positionZh(report.mainPosition)}的局，不然位置差异会盖过英雄差异）` : ""}
+                ，全期。{opggRate !== null ? "第三行是 OP.GG 大盘同位置胜率。" : ""}
               </p>
               <IntervalChart
                 rows={[
                   rateRow(`用${report.champion}`, report.wins, report.games, wilson(report.otherWins, report.otherGames)),
-                  rateRow("用其他英雄", report.otherWins, report.otherGames, wilson(report.wins, report.games)),
+                  rateRow(
+                    report.othersSamePosition ? `其他${positionZh(report.mainPosition)}英雄` : "其他英雄",
+                    report.otherWins,
+                    report.otherGames,
+                    wilson(report.wins, report.games)
+                  ),
                   ...(opggRate !== null
                     ? [
                         {
@@ -392,7 +399,9 @@ export default async function PlayerPage({
                   <thead className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
                     <tr className="border-b border-[var(--border)]">
                       <th className="px-2 py-1.5 text-left">指标</th>
-                      <th className="px-2 py-1.5 text-right">其他英雄</th>
+                      <th className="px-2 py-1.5 text-right">
+                        {report.othersSamePosition ? `其他${positionZh(report.mainPosition)}英雄` : "其他英雄"}
+                      </th>
                       <th className="px-2 py-1.5 text-right">{report.champion}</th>
                       <th className="px-2 py-1.5 text-right">差</th>
                       <th className="px-2 py-1.5 text-right">结论</th>
@@ -444,7 +453,9 @@ export default async function PlayerPage({
                         <th className="px-2 py-1.5 text-right">前半（{report.halves[0].a.n} 场）</th>
                         <th className="px-2 py-1.5 text-right">后半（{report.halves[0].b.n} 场）</th>
                         <th className="px-2 py-1.5 text-right">变化</th>
-                        <th className="px-2 py-1.5 text-right">其他英雄同期</th>
+                        <th className="px-2 py-1.5 text-right">
+                          {report.othersSamePosition ? `其他${positionZh(report.mainPosition)}英雄同期` : "其他英雄同期"}
+                        </th>
                         <th className="px-2 py-1.5 text-right">结论</th>
                       </tr>
                     </thead>
