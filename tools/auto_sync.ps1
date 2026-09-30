@@ -116,6 +116,19 @@ try {
   $me = Get-Content $meFile -Raw -Encoding UTF8 | ConvertFrom-Json
   Log "account: $($me.gameName)#$($me.tagLine)"
 
+  # ---- 3.1 正在游戏中就不同步 ----
+  # 计划任务每 30 分钟一次, 撞上正在打的局很常见. 这时候同步既没意义 (局没打完,
+  # 没有新战绩), 也没必要在游戏中占网络. 选人阶段一并跳过.
+  # gameflow-phase 返回带引号的字符串, 比如 "InProgress", 要把引号去掉.
+  $gfFile = Join-Path $tmpDir "gameflow.json"
+  if ((LcuRaw "/lol-gameflow/v1/gameflow-phase" $gfFile) -eq "200") {
+    $phase = (Get-Content $gfFile -Raw -Encoding UTF8).Trim().Trim('"')
+    if ($phase -eq "InProgress" -or $phase -eq "ChampSelect" -or $phase -eq "GameStart" -or $phase -eq "Reconnect") {
+      Log "skip: 正在游戏中 ($phase), 这次不同步"
+      exit 0
+    }
+  }
+
   $proxyArgs = @(); if ($Proxy) { $proxyArgs = @("-x", $Proxy) }
 
   # ---- 3.4 网站已有哪些对局 (两条路都要用: 已有的就不必再拉再传) ----

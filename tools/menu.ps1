@@ -132,12 +132,21 @@ while ($true) {
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
         Write-Host "`n已关闭自动同步。" -ForegroundColor Green
       } else {
-        $inner = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$(Join-Path $here 'auto_sync.ps1')`""
-        $act = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $inner
+        # 通过 wscript 拉起, 而不是直接 powershell.exe: 后者即使 -WindowStyle Hidden
+        # 也是先建控制台再隐藏, 那一闪会把全屏游戏顶出焦点 (用户实测每 30 分钟弹一次).
+        # wscript 以窗口样式 0 启动, 从创建那一刻就没有窗口. //B 批处理模式, 出错也不弹框.
+        $vbs = Join-Path $here 'run_hidden.vbs'
+        if (-not (Test-Path $vbs)) {
+          Write-Host "`n找不到 run_hidden.vbs，它应该和这个文件放在一起。请重新下载完整工具包。" -ForegroundColor Yellow
+          Read-Host "`n按回车回菜单"
+          break
+        }
+        $act = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "//B //Nologo `"$vbs`""
         $trg = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 30)
         $set = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
         Register-ScheduledTask -TaskName $TaskName -Action $act -Trigger $trg -Settings $set -RunLevel Highest -Force | Out-Null
-        Write-Host "`n已开启：每 30 分钟自动同步一次，客户端没开就自动跳过。" -ForegroundColor Green
+        Write-Host "`n已开启：每 30 分钟自动同步一次，客户端没开就自动跳过，正在游戏中也跳过。" -ForegroundColor Green
+        Write-Host "全程无窗口，不会打断全屏游戏。" -ForegroundColor DarkGray
         Write-Host "网站地址和代理取的是上面显示的配置，改了配置不用重设任务。" -ForegroundColor DarkGray
       }
       Read-Host "`n按回车回菜单"
